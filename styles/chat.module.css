@@ -1,13 +1,15 @@
 .chatPage {
   display: grid;
   grid-template-columns: 320px 1fr;
-  height: calc(100vh - 78px);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 18px;
   border-right: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.56);
@@ -147,6 +149,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background:
     radial-gradient(circle at top, rgba(31, 111, 255, 0.1), transparent 26%),
@@ -165,12 +168,18 @@
   position: sticky;
   top: 0;
   z-index: 8;
+  flex-shrink: 0;
 }
 
 .panelIdentity {
   display: flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.panelInfo {
   min-width: 0;
 }
 
@@ -202,12 +211,18 @@
   margin: 0;
   font-size: 24px;
   font-family: 'Space Grotesk', 'Manrope', sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panelText {
   margin: 6px 0 0;
   color: #667085;
   font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status {
@@ -222,32 +237,57 @@
 .headerActions {
   display: flex;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .messageArea {
   flex: 1;
   overflow: auto;
   padding: 26px 24px 18px;
+  min-width: 0;
+  min-height: 0;
 }
 
 .messageStack {
   display: grid;
   gap: 18px;
   max-width: 980px;
+  width: min(100%, 980px);
+  margin: 0 auto;
 }
 
 .messageRowOwn,
 .messageRowPeer {
   display: flex;
+  min-width: 0;
 }
 
 .messageRowOwn {
   justify-content: flex-end;
 }
 
+.messageCardOwn,
+.messageCardPeer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: min(440px, 78%);
+}
+
+.messageCardOwn {
+  align-items: flex-end;
+}
+
+.messageCardPeer {
+  align-items: flex-start;
+}
+
 .messageBubbleOwn,
 .messageBubblePeer {
-  max-width: min(440px, 78%);
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
   padding: 14px 16px 10px;
   border-radius: 24px;
   box-shadow: 0 18px 32px rgba(15, 23, 42, 0.08);
@@ -270,8 +310,10 @@
   margin: 0;
   line-height: 1.55;
   font-size: 15px;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+  max-width: 100%;
 }
 
 .messageTimeOwn,
@@ -287,6 +329,7 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
+  max-width: 100%;
 }
 
 .messageMetaOwn {
@@ -321,8 +364,8 @@
 .messageTools {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
   position: relative;
   z-index: 2;
 }
@@ -479,8 +522,8 @@
 @media (max-width: 960px) {
   .chatPage {
     grid-template-columns: 1fr;
-    height: calc(100vh - 78px);
-    min-height: calc(100vh - 78px);
+    height: 100%;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -514,14 +557,15 @@
   }
 
   .panelHeader {
-    align-items: flex-start;
     flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
   }
 
   .panel {
     overflow: hidden;
     min-height: 0;
-    height: calc(100vh - 78px);
+    height: 100%;
   }
 
   .messageArea {
@@ -531,6 +575,8 @@
 
   .headerActions {
     width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .secondaryButton,
@@ -543,12 +589,12 @@
 @media (max-width: 640px) {
   .panel {
     min-height: 0;
-    height: calc(100vh - 78px);
+    height: 100%;
   }
 
   .sidebar {
     padding: 14px;
-    min-height: calc(100vh - 78px);
+    min-height: 100%;
     overflow: auto;
   }
 
@@ -561,6 +607,12 @@
 
   .panelIdentity {
     width: 100%;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .panelInfo {
+    flex: 1;
   }
 
   .headerAvatar {
@@ -582,7 +634,7 @@
   }
 
   .messageArea {
-    padding-top: 18px;
+    padding-top: 16px;
     height: auto;
     overflow: auto;
   }
@@ -590,6 +642,7 @@
   .panelHeader {
     top: 0;
     flex-shrink: 0;
+    padding-top: max(14px, env(safe-area-inset-top));
   }
 
   .composer {
@@ -597,13 +650,25 @@
     bottom: 0;
     z-index: 7;
     flex-shrink: 0;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .backButton {
+    width: 42px;
+    height: 42px;
+    border-radius: 15px;
   }
 
   .messageBubbleOwn,
   .messageBubblePeer {
-    max-width: min(76vw, 100%);
+    max-width: 100%;
     padding: 12px 14px 8px;
     border-radius: 22px;
+  }
+
+  .messageCardOwn,
+  .messageCardPeer {
+    max-width: min(82vw, 100%);
   }
 
   .messageContent {
@@ -613,7 +678,9 @@
 
   .messageMetaOwn,
   .messageMetaPeer {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
     margin-top: 6px;
   }
 
@@ -622,13 +689,11 @@
   .messageEditedOwn,
   .messageEditedPeer,
   .messageStatus {
-    display: inline;
     font-size: 11px;
-    margin-right: 6px;
+    margin-right: 0;
   }
 
   .messageTools {
     justify-content: flex-start;
-    flex-wrap: wrap;
   }
 }
