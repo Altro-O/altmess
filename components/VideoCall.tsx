@@ -33,6 +33,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const ringtoneContextRef = useRef<AudioContext | null>(null);
+  const ringtoneTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const ensureRemotePlayback = async () => {
     try {
@@ -42,10 +44,73 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     }
   };
 
+  const stopRingtone = () => {
+    if (ringtoneTimerRef.current) {
+      clearInterval(ringtoneTimerRef.current);
+      ringtoneTimerRef.current = null;
+    }
+
+    if (ringtoneContextRef.current) {
+      ringtoneContextRef.current.close().catch(() => null);
+      ringtoneContextRef.current = null;
+    }
+  };
+
+  const startRingtone = () => {
+    const AudioContextCtor = typeof window === 'undefined'
+      ? null
+      : (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext || null);
+
+    if (ringtoneTimerRef.current || !AudioContextCtor) {
+      return;
+    }
+
+    const context = new AudioContextCtor();
+    ringtoneContextRef.current = context;
+
+    const playTone = (frequency: number, delayMs: number) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.value = 0.0001;
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      const now = context.currentTime + delayMs / 1000;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      oscillator.start(now);
+      oscillator.stop(now + 0.34);
+    };
+
+    const ring = () => {
+      if (context.state === 'suspended') {
+        context.resume().catch(() => null);
+      }
+      playTone(720, 0);
+      playTone(880, 260);
+    };
+
+    ring();
+    ringtoneTimerRef.current = setInterval(ring, 1800);
+  };
+
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
     setVideoEnabled(call.mode === 'video');
+    setVideoUnavailable(false);
   }, [call]);
+
+  useEffect(() => {
+    if (phase === 'incoming') {
+      startRingtone();
+      return () => stopRingtone();
+    }
+
+    stopRingtone();
+    return undefined;
+  }, [phase]);
 
   useEffect(() => {
     if (localVideoRef.current) {
@@ -83,6 +148,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     remoteStreamRef.current = null;
     setRemoteStream(null);
     pendingIceCandidatesRef.current = [];
+    stopRingtone();
   };
 
   useEffect(() => {

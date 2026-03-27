@@ -21,6 +21,13 @@ export interface ChatMessage {
   senderId: string;
   recipientId: string;
   content: string;
+  kind?: 'text' | 'call';
+  callEvent?: {
+    mode: 'audio' | 'video';
+    status: 'missed' | 'rejected' | 'ended';
+    durationSeconds?: number;
+    actorId?: string;
+  } | null;
   updatedAt?: string | null;
   deletedAt?: string | null;
   status: 'sent' | 'delivered' | 'read';

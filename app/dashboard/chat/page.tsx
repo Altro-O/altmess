@@ -27,6 +27,10 @@ function getMessagePreview(message?: ChatMessage | null) {
     return 'Начните диалог';
   }
 
+  if (message.kind === 'call') {
+    return message.content;
+  }
+
   return message.content.length > 42 ? `${message.content.slice(0, 42)}...` : message.content;
 }
 
@@ -588,15 +592,16 @@ export default function ChatPage() {
                   {messages.map((message) => {
                     const ownMessage = message.senderId === user.id;
                     const isEditing = editingMessageId === message.id;
+                    const isCallEvent = message.kind === 'call';
 
                     return (
-                      <div key={message.id} className={ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
+                      <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
                         <div
                           ref={ownMessage ? undefined : (node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
-                          className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
+                          className={isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
                           onContextMenu={(event) => {
-                            if (!ownMessage || message.deletedAt) {
+                            if (!ownMessage || message.deletedAt || isCallEvent) {
                               return;
                             }
 
@@ -605,7 +610,7 @@ export default function ChatPage() {
                             openMessageActions(message.id);
                           }}
                           onTouchStart={() => {
-                            if (!ownMessage || message.deletedAt) {
+                            if (!ownMessage || message.deletedAt || isCallEvent) {
                               return;
                             }
 
@@ -625,14 +630,14 @@ export default function ChatPage() {
                           ) : (
                             <>
                               <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
-                              <div className={ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
-                                <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
+                              <div className={isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
+                                <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
                                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
-                                {message.updatedAt && !message.deletedAt ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
-                                {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
+                                {message.updatedAt && !message.deletedAt && !isCallEvent ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
+                                {ownMessage && !isCallEvent ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
                               </div>
-                              {ownMessage && !message.deletedAt && actionMessageId === message.id ? (
+                              {ownMessage && !message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
                                 <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
                                   <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button>
                                   <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>

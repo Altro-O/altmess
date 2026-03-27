@@ -134,6 +134,77 @@ function sanitizeMessage(message) {
   };
 }
 
+function formatCallDuration(startedAt, endedAt) {
+  const started = new Date(startedAt).getTime();
+  const ended = new Date(endedAt).getTime();
+  const totalSeconds = Math.max(0, Math.round((ended - started) / 1000));
+
+  if (totalSeconds < 60) {
+    return `${totalSeconds} сек`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function buildCallSummary(call, actorId) {
+  const prefix = call.mode === 'video' ? 'Видеозвонок' : 'Аудиозвонок';
+
+  if (call.status === 'missed') {
+    return `${prefix} пропущен`;
+  }
+
+  if (call.status === 'rejected') {
+    return actorId === call.recipientId ? `${prefix} отклонен` : `${prefix} отменен`;
+  }
+
+  if (call.status === 'ended') {
+    const duration = call.endedAt ? formatCallDuration(call.startedAt, call.endedAt) : null;
+    return duration ? `${prefix} завершен · ${duration}` : `${prefix} завершен`;
+  }
+
+  return prefix;
+}
+
+function createCallLogMessage(db, call, actorId) {
+  const now = call.endedAt || new Date().toISOString();
+  const durationSeconds = call.endedAt
+    ? Math.max(0, Math.round((new Date(call.endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000))
+    : 0;
+
+  const message = {
+    id: randomUUID(),
+    senderId: call.callerId,
+    recipientId: call.recipientId,
+    content: buildCallSummary(call, actorId),
+    kind: 'call',
+    callEvent: {
+      mode: call.mode,
+      status: call.status,
+      durationSeconds,
+      actorId,
+    },
+    status: 'read',
+    deliveredAt: now,
+    readAt: now,
+    createdAt: now,
+    updatedAt: null,
+    deletedAt: null,
+  };
+
+  db.messages.push(message);
+  return message;
+}
+
+async function persistCallLog(db, call, actorId) {
+  const message = createCallLogMessage(db, call, actorId);
+  await writeDb(db);
+  const payload = sanitizeMessage(message);
+  emitToUser(call.callerId, 'message:new', payload);
+  emitToUser(call.recipientId, 'message:new', payload);
+}
+
 app.prepare().then(async () => {
   await loadState();
 
@@ -240,7 +311,7 @@ app.prepare().then(async () => {
 
   function scheduleRingTimeout(callId) {
     clearRingTimeout(callId);
-    const timeout = setTimeout(() => {
+    const timeout = setTimeout(async () => {
       const db = readDb();
       const call = activeCalls.get(callId);
       const storedCall = db.calls.find((entry) => entry.id === callId);
@@ -254,7 +325,7 @@ app.prepare().then(async () => {
       call.endedAt = endedAt;
       storedCall.status = 'missed';
       storedCall.endedAt = endedAt;
-      writeDb(db);
+      await persistCallLog(db, storedCall, call.recipientId);
       activeCalls.delete(callId);
       ringTimeouts.delete(callId);
       emitToUser(call.callerId, 'call:missed', { callId, byUserId: call.recipientId });
@@ -833,7 +904,7 @@ app.prepare().then(async () => {
       storedCall.status = 'rejected';
       storedCall.endedAt = new Date().toISOString();
       call.endedAt = storedCall.endedAt;
-      await writeDb(db);
+      await persistCallLog(db, storedCall, currentUser.id);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:rejected', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:rejected', { callId, byUserId: currentUser.id });
@@ -852,7 +923,7 @@ app.prepare().then(async () => {
       storedCall.status = 'ended';
       storedCall.endedAt = new Date().toISOString();
       call.endedAt = storedCall.endedAt;
-      await writeDb(db);
+      await persistCallLog(db, storedCall, currentUser.id);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:ended', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:ended', { callId, byUserId: currentUser.id });
@@ -908,7 +979,7 @@ app.prepare().then(async () => {
           call.endedAt = new Date().toISOString();
           storedCall.status = 'ended';
           storedCall.endedAt = call.endedAt;
-          await writeDb(db);
+          await persistCallLog(db, storedCall, currentUser.id);
           activeCalls.delete(call.id);
           emitToUser(getCallPeerId(call, currentUser.id), 'call:ended', { callId: call.id, byUserId: currentUser.id });
         });
