@@ -364,6 +364,10 @@
   color: inherit;
 }
 
+.messageBubbleHighlighted {
+  box-shadow: 0 0 0 3px rgba(31, 111, 255, 0.22), 0 18px 32px rgba(15, 23, 42, 0.08);
+}
+
 .messageBubblePeer .replyPreview,
 .messageBubbleSystem .replyPreview {
   background: rgba(15, 23, 42, 0.06);
@@ -392,7 +396,7 @@
 }
 
 .reactionChip,
-.quickReaction {
+.reactionMenuEmoji {
   border: 0;
   border-radius: 999px;
   padding: 6px 10px;
@@ -409,7 +413,7 @@
 
 .messageBubblePeer .reactionChip,
 .messageBubbleSystem .reactionChip,
-.quickReaction {
+.reactionMenuEmoji {
   background: rgba(15, 23, 42, 0.06);
   color: #111827;
 }
@@ -418,14 +422,28 @@
   outline: 2px solid rgba(31, 111, 255, 0.32);
 }
 
-.quickReactionRow {
-  display: inline-flex;
+.reactionPickerMenu {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 6px;
+  width: min(320px, 100%);
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+}
+
+.reactionMenuEmoji {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 18px;
 }
 
 .messageTools {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
@@ -434,6 +452,7 @@
 }
 
 .messageTool,
+.messageToolPrimary,
 .messageToolDanger,
 .smallButton,
 .smallMutedButton {
@@ -448,6 +467,11 @@
 .smallButton {
   background: rgba(255, 255, 255, 0.18);
   color: white;
+}
+
+.messageToolPrimary {
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
 }
 
 .messageToolDanger {
@@ -556,7 +580,7 @@
 
 .composerForm {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 12px;
 }
 
@@ -582,6 +606,34 @@
   color: white;
   font-weight: 800;
   box-shadow: 0 16px 28px rgba(31, 111, 255, 0.2);
+}
+
+.iconButton {
+  min-width: 54px;
+  padding: 0 16px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.iconButtonActive {
+  background: rgba(229, 72, 77, 0.1);
+  color: #b42318;
+}
+
+.iconSvg {
+  width: 20px;
+  height: 20px;
+}
+
+.iconButtonText {
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .secondaryButton {
@@ -752,7 +804,7 @@
   }
 
   .composerForm {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto auto;
   }
 
   .messageArea {
@@ -808,7 +860,11 @@
   }
 
   .messageTools {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .reactionPickerMenu {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    width: min(260px, 100%);
   }
 }

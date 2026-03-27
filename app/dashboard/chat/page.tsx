@@ -10,7 +10,7 @@ import styles from '../../../styles/chat.module.css';
 
 const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
-const EMOJI_OPTIONS = ['🙂', '😍', '🔥', '😂', '👏', '🤝', '🎧', '🚀'];
+const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -99,6 +99,7 @@ export default function ChatPage() {
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
     { urls: ['stun:stun1.l.google.com:19302'] },
@@ -114,6 +115,7 @@ export default function ChatPage() {
   const pendingReadIdsRef = useRef(new Set<string>());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -438,6 +440,10 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => () => {
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+
     if (voiceTimerRef.current) {
       clearInterval(voiceTimerRef.current);
     }
@@ -489,6 +495,24 @@ export default function ChatPage() {
   const appendEmoji = (emoji: string) => {
     setInputText((prev) => `${prev}${emoji}`);
     setShowEmojiPicker(false);
+  };
+
+  const jumpToMessage = (messageId: string) => {
+    const target = messageNodeMapRef.current.get(messageId);
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMessageId(messageId);
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+      highlightTimerRef.current = null;
+    }, 1800);
   };
 
   const toggleReaction = (messageId: string, emoji: string) => {
@@ -771,7 +795,7 @@ export default function ChatPage() {
                         <div
                           ref={ownMessage ? undefined : (node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
-                          className={isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
+                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
                           onContextMenu={(event) => {
                             if (message.deletedAt || isCallEvent) {
                               return;
@@ -802,10 +826,7 @@ export default function ChatPage() {
                           ) : (
                             <>
                               {message.replyTo ? (
-                                <button type="button" className={styles.replyPreview} onClick={() => {
-                                  const target = messageNodeMapRef.current.get(message.replyTo!.id);
-                                  target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                }}>
+                                <button type="button" className={styles.replyPreview} onClick={() => jumpToMessage(message.replyTo!.id)}>
                                   <span className={styles.replyAuthor}>{message.replyTo.senderId === user.id ? 'Вы' : activeContact?.displayName || activeContact?.username}</span>
                                   <span className={styles.replyText}>{getReplySnippet(message.replyTo)}</span>
                                 </button>
@@ -824,7 +845,12 @@ export default function ChatPage() {
                               </div>
                               {!message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
                                 <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
-                                  <button type="button" className={styles.messageTool} onClick={() => { setReplyMessage(message); setActionMessageId(null); }}>Ответить</button>
+                                  <div className={styles.reactionPickerMenu}>
+                                    {EMOJI_OPTIONS.map((emoji) => (
+                                      <button key={emoji} type="button" className={styles.reactionMenuEmoji} onClick={() => { toggleReaction(message.id, emoji); setActionMessageId(null); }}>{emoji}</button>
+                                    ))}
+                                  </div>
+                                  <button type="button" className={styles.messageToolPrimary} onClick={() => { setReplyMessage(message); setActionMessageId(null); }}>Ответить</button>
                                   {ownMessage && message.kind !== 'voice' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
                                   {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
                                 </div>
@@ -842,11 +868,6 @@ export default function ChatPage() {
                                       <span>{reaction.userIds.length}</span>
                                     </button>
                                   ))}
-                                  <div className={styles.quickReactionRow}>
-                                    {EMOJI_OPTIONS.slice(0, 4).map((emoji) => (
-                                      <button key={emoji} type="button" className={styles.quickReaction} onClick={() => toggleReaction(message.id, emoji)}>{emoji}</button>
-                                    ))}
-                                  </div>
                                 </div>
                               ) : null}
                             </>
@@ -872,9 +893,6 @@ export default function ChatPage() {
                 ) : null}
                 <div className={styles.composerToolbar}>
                   <button type="button" className={styles.secondaryButton} onClick={() => setShowEmojiPicker((prev) => !prev)}>Эмодзи</button>
-                  <button type="button" className={styles.secondaryButton} onClick={() => startVoiceRecording()}>
-                    {isRecordingVoice ? `Стоп ${voiceSeconds}s` : 'Голос'}
-                  </button>
                 </div>
                 {showEmojiPicker ? (
                   <div className={styles.emojiPicker}>
@@ -885,6 +903,10 @@ export default function ChatPage() {
                 ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                  <button type="button" className={`${styles.iconButton} ${isRecordingVoice ? styles.iconButtonActive : ''}`} onClick={() => startVoiceRecording()} title={isRecordingVoice ? `Остановить запись ${voiceSeconds}s` : 'Записать голосовое'}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z" fill="currentColor"/></svg>
+                    {isRecordingVoice ? <span className={styles.iconButtonText}>{voiceSeconds}s</span> : null}
+                  </button>
                   <button type="submit" className={styles.composerButton}>Отправить</button>
                 </form>
               </div>
