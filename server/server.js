@@ -134,6 +134,19 @@ function sanitizeMessage(message) {
   };
 }
 
+function buildReplyPreview(message) {
+  if (!message) {
+    return null;
+  }
+
+  return {
+    id: message.id,
+    senderId: message.senderId,
+    content: message.kind === 'voice' ? 'Голосовое сообщение' : sanitizeMessage(message).content,
+    kind: message.kind || 'text',
+  };
+}
+
 function formatCallDuration(startedAt, endedAt) {
   const started = new Date(startedAt).getTime();
   const ended = new Date(endedAt).getTime();
@@ -153,6 +166,10 @@ function buildCallSummary(call, actorId) {
 
   if (call.status === 'missed') {
     return `${prefix} пропущен`;
+  }
+
+  if (call.status === 'accepted') {
+    return `${prefix} принят`;
   }
 
   if (call.status === 'rejected') {
@@ -717,10 +734,19 @@ app.prepare().then(async () => {
     socket.on('message:send', async (payload, callback) => {
       const content = String(payload?.content || '').trim();
       const recipientId = String(payload?.recipientId || '');
+      const kind = payload?.kind === 'voice' ? 'voice' : 'text';
+      const voice = payload?.voice && typeof payload.voice.audioUrl === 'string'
+        ? {
+            audioUrl: String(payload.voice.audioUrl),
+            durationSeconds: Number(payload.voice.durationSeconds || 0),
+          }
+        : null;
+      const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;
       const db = readDb();
       const recipient = db.users.find((user) => user.id === recipientId);
+      const replyToMessage = replyToMessageId ? db.messages.find((entry) => entry.id === replyToMessageId) : null;
 
-      if (!content || !recipient) {
+      if ((!content && kind !== 'voice') || (kind === 'voice' && !voice?.audioUrl) || !recipient) {
         callback?.({ ok: false, error: 'Получатель не найден или сообщение пустое' });
         return;
       }
@@ -730,7 +756,10 @@ app.prepare().then(async () => {
         id: randomUUID(),
         senderId: currentUser.id,
         recipientId,
-        content,
+        content: kind === 'voice' ? 'Голосовое сообщение' : content,
+        kind,
+        voice,
+        replyTo: buildReplyPreview(replyToMessage),
         status: 'sent',
         deliveredAt: null,
         readAt: null,
@@ -770,7 +799,7 @@ app.prepare().then(async () => {
       const message = db.messages.find((entry) => entry.id === String(messageId));
       const nextContent = String(content || '').trim();
 
-      if (!message || message.senderId !== currentUser.id || message.deletedAt) {
+      if (!message || message.senderId !== currentUser.id || message.deletedAt || message.kind === 'voice' || message.kind === 'call') {
         callback?.({ ok: false, error: 'Сообщение нельзя изменить' });
         return;
       }
@@ -782,6 +811,36 @@ app.prepare().then(async () => {
 
       message.content = nextContent;
       message.updatedAt = new Date().toISOString();
+      writeDb(db);
+
+      const payload = sanitizeMessage(message);
+      emitToUser(message.senderId, 'message:update', payload);
+      emitToUser(message.recipientId, 'message:update', payload);
+      callback?.({ ok: true, message: payload });
+    });
+
+    socket.on('message:react', ({ messageId, emoji }, callback) => {
+      const db = readDb();
+      const message = db.messages.find((entry) => entry.id === String(messageId));
+      const nextEmoji = String(emoji || '').trim();
+
+      if (!message || !nextEmoji || message.deletedAt) {
+        callback?.({ ok: false, error: 'Не удалось обновить реакцию' });
+        return;
+      }
+
+      const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+      const existing = reactions.find((entry) => entry.emoji === nextEmoji);
+
+      if (existing) {
+        existing.userIds = existing.userIds.includes(currentUser.id)
+          ? existing.userIds.filter((userId) => userId !== currentUser.id)
+          : [...existing.userIds, currentUser.id];
+      } else {
+        reactions.push({ emoji: nextEmoji, userIds: [currentUser.id] });
+      }
+
+      message.reactions = reactions.filter((entry) => entry.userIds.length > 0);
       writeDb(db);
 
       const payload = sanitizeMessage(message);
@@ -859,10 +918,10 @@ app.prepare().then(async () => {
       if (!hasVisibleSocket(toUserId)) {
         await sendPushToUser(toUserId, {
           title: mode === 'video' ? 'Видеозвонок' : 'Аудиозвонок',
-          body: `${currentUser.displayName || currentUser.username} звонит вам`,
+          body: `${currentUser.displayName || currentUser.username} звонит вам. Нажмите, чтобы открыть чат.`,
           tag: `call-${call.id}`,
           requireInteraction: true,
-          url: `/dashboard/chat?contactId=${currentUser.id}`,
+          url: `/dashboard/chat?contactId=${currentUser.id}&incomingCallId=${call.id}&incomingCallMode=${mode}`,
           data: {
             type: 'call',
             callId: call.id,
@@ -886,7 +945,11 @@ app.prepare().then(async () => {
       clearRingTimeout(call.id);
       call.status = 'active';
       storedCall.status = 'active';
+      createCallLogMessage(db, { ...storedCall, status: 'accepted' }, currentUser.id);
       await writeDb(db);
+      const latestMessage = sanitizeMessage(db.messages[db.messages.length - 1]);
+      emitToUser(call.callerId, 'message:new', latestMessage);
+      emitToUser(call.recipientId, 'message:new', latestMessage);
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:accepted', { callId, byUserId: currentUser.id });
     });

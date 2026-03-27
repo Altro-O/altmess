@@ -21,10 +21,24 @@ export interface ChatMessage {
   senderId: string;
   recipientId: string;
   content: string;
-  kind?: 'text' | 'call';
+  kind?: 'text' | 'call' | 'voice';
+  replyTo?: {
+    id: string;
+    senderId: string;
+    content: string;
+    kind?: 'text' | 'call' | 'voice';
+  } | null;
+  reactions?: Array<{
+    emoji: string;
+    userIds: string[];
+  }>;
+  voice?: {
+    audioUrl: string;
+    durationSeconds: number;
+  } | null;
   callEvent?: {
     mode: 'audio' | 'video';
-    status: 'missed' | 'rejected' | 'ended';
+    status: 'accepted' | 'missed' | 'rejected' | 'ended';
     durationSeconds?: number;
     actorId?: string;
   } | null;
@@ -40,12 +54,58 @@ type RequestOptions = RequestInit & {
   token?: string | null;
 };
 
+const TOKEN_KEY = 'altmess_token';
+const USER_KEY = 'altmess_user';
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function persistSessionCookie(token: string) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.cookie = `altmess_token=${encodeURIComponent(token)}; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax`;
+}
+
+function clearSessionCookie() {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.cookie = 'altmess_token=; Max-Age=0; Path=/; SameSite=Lax';
+}
+
+function getTokenFromCookie() {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const match = document.cookie.match(/(?:^|; )altmess_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 export function getStoredToken() {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  return localStorage.getItem('altmess_token');
+  return localStorage.getItem(TOKEN_KEY) || getTokenFromCookie();
+}
+
+export function getStoredUser() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
 }
 
 export function storeSession(token: string, user: AuthUser) {
@@ -53,8 +113,9 @@ export function storeSession(token: string, user: AuthUser) {
     return;
   }
 
-  localStorage.setItem('altmess_token', token);
-  localStorage.setItem('altmess_user', JSON.stringify(user));
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  persistSessionCookie(token);
 }
 
 export function clearSession() {
@@ -62,8 +123,9 @@ export function clearSession() {
     return;
   }
 
-  localStorage.removeItem('altmess_token');
-  localStorage.removeItem('altmess_user');
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  clearSessionCookie();
 }
 
 export async function apiFetch<T>(url: string, options: RequestOptions = {}): Promise<T> {

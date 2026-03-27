@@ -16,10 +16,13 @@ interface VideoCallProps {
   socket: Socket;
   call: CallSession;
   iceServers: RTCIceServer[];
+  minimized: boolean;
+  onMinimize: () => void;
+  onRestore: () => void;
   onClose: () => void;
 }
 
-export default function VideoCall({ socket, call, iceServers, onClose }: VideoCallProps) {
+export default function VideoCall({ socket, call, iceServers, minimized, onMinimize, onRestore, onClose }: VideoCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'outgoing' : 'incoming');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -402,11 +405,6 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     });
   };
 
-  const closeOverlay = () => {
-    closeResources();
-    onClose();
-  };
-
   const statusText = useMemo(() => {
     if (phase === 'incoming') return 'Входящий звонок';
     if (phase === 'outgoing') return 'Ожидаем ответ';
@@ -417,6 +415,18 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     if (phase === 'missed') return 'Звонок пропущен';
     return 'Звонок завершен';
   }, [call.mode, phase]);
+
+  if (minimized) {
+    return (
+      <>
+        <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
+        <button type="button" className={styles.minimizedCall} onClick={onRestore}>
+          <span className={styles.minimizedTitle}>{call.peerName}</span>
+          <span className={styles.minimizedText}>{statusText}</span>
+        </button>
+      </>
+    );
+  }
 
   return (
     <div className={styles.overlay} style={{ display: 'block' }}>
@@ -475,15 +485,14 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
             <button className={styles.dangerWide} onClick={endCall}>
               <span className={styles.controlTitle}>Завершить</span>
             </button>
+            <button className={styles.controlWide} onClick={onMinimize}>
+              <span className={styles.controlTitle}>Скрыть</span>
+            </button>
             {call.mode === 'video' ? (
               <button className={styles.controlWide} onClick={toggleVideo}>
                 <span className={styles.controlTitle}>{videoEnabled ? 'Камера вкл' : 'Камера выкл'}</span>
               </button>
-            ) : (
-              <button className={styles.controlWide} onClick={closeOverlay}>
-                <span className={styles.controlTitle}>Скрыть</span>
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       )}

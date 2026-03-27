@@ -352,6 +352,77 @@
   font-style: italic;
 }
 
+.replyPreview {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  text-align: left;
+  color: inherit;
+}
+
+.messageBubblePeer .replyPreview,
+.messageBubbleSystem .replyPreview {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.replyAuthor {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.replyText {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.voicePlayer {
+  width: min(260px, 100%);
+  margin: 2px 0 0;
+}
+
+.reactionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.reactionChip,
+.quickReaction {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.reactionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+}
+
+.messageBubblePeer .reactionChip,
+.messageBubbleSystem .reactionChip,
+.quickReaction {
+  background: rgba(15, 23, 42, 0.06);
+  color: #111827;
+}
+
+.reactionChipActive {
+  outline: 2px solid rgba(31, 111, 255, 0.32);
+}
+
+.quickReactionRow {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .messageTools {
   display: flex;
   justify-content: flex-end;
@@ -421,6 +492,66 @@
   border-top: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.74);
   backdrop-filter: blur(16px);
+}
+
+.composerToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.emojiPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.emojiButton {
+  border: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.05);
+  font-size: 22px;
+}
+
+.replyBanner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(31, 111, 255, 0.08);
+  border: 1px solid rgba(31, 111, 255, 0.14);
+}
+
+.replyBannerTitle {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.replyBannerText {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+}
+
+.replyBannerClose {
+  border: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #344054;
 }
 
 .composerForm {

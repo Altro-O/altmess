@@ -8,6 +8,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: payload.body || '',
     tag: payload.tag || 'altmess-notification',
+    icon: '/altmess.jpeg',
+    badge: '/altmess.jpeg',
     data: {
       ...(payload.data || {}),
       url: payload.url || '/dashboard/chat',

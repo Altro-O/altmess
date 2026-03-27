@@ -10,6 +10,7 @@ import styles from '../../../styles/chat.module.css';
 
 const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
+const EMOJI_OPTIONS = ['🙂', '😍', '🔥', '😂', '👏', '🤝', '🎧', '🚀'];
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -31,7 +32,23 @@ function getMessagePreview(message?: ChatMessage | null) {
     return message.content;
   }
 
+  if (message.kind === 'voice') {
+    return 'Голосовое сообщение';
+  }
+
   return message.content.length > 42 ? `${message.content.slice(0, 42)}...` : message.content;
+}
+
+function getReplySnippet(message?: ChatMessage['replyTo'] | null) {
+  if (!message) {
+    return '';
+  }
+
+  if (message.kind === 'voice') {
+    return 'Голосовое сообщение';
+  }
+
+  return message.content.length > 52 ? `${message.content.slice(0, 52)}...` : message.content;
 }
 
 function getOwnStatusText(message: ChatMessage) {
@@ -80,11 +97,16 @@ export default function ChatPage() {
   const [actionMessageId, setActionMessageId] = useState<string | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
     { urls: ['stun:stun1.l.google.com:19302'] },
   ]);
   const [callSession, setCallSession] = useState<CallSession | null>(null);
+  const [callOverlayVisible, setCallOverlayVisible] = useState(true);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +114,10 @@ export default function ChatPage() {
   const pendingReadIdsRef = useRef(new Set<string>());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
 
@@ -237,6 +263,7 @@ export default function ChatPage() {
             mode,
             initiator: false,
           });
+          setCallOverlayVisible(true);
         });
       } catch (error) {
         setPageError(error instanceof Error ? error.message : 'Не удалось загрузить чат');
@@ -410,6 +437,15 @@ export default function ChatPage() {
     return () => window.removeEventListener('click', handleClose);
   }, []);
 
+  useEffect(() => () => {
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+    }
+
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaRecorderRef.current = null;
+  }, []);
+
   const activeContact = useMemo(
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
     [activeContactId, sidebarItems],
@@ -429,7 +465,7 @@ export default function ChatPage() {
     }
 
     const content = inputText.trim();
-    socketRef.current.emit('message:send', { recipientId: activeContact.id, content }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+    socketRef.current.emit('message:send', { recipientId: activeContact.id, content, replyToMessageId: replyMessage?.id }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
       if (!response.ok || !response.message) {
         setPageError(response.error || 'Не удалось отправить сообщение');
         return;
@@ -445,7 +481,128 @@ export default function ChatPage() {
         return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
       });
       setInputText('');
+      setReplyMessage(null);
+      setShowEmojiPicker(false);
     });
+  };
+
+  const appendEmoji = (emoji: string) => {
+    setInputText((prev) => `${prev}${emoji}`);
+    setShowEmojiPicker(false);
+  };
+
+  const toggleReaction = (messageId: string, emoji: string) => {
+    if (!socketRef.current) {
+      return;
+    }
+
+    socketRef.current.emit('message:react', { messageId, emoji }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+      if (!response.ok || !response.message) {
+        setPageError(response.error || 'Не удалось обновить реакцию');
+        return;
+      }
+
+      setMessages((prev) => upsertMessage(prev, response.message!));
+    });
+  };
+
+  const stopVoiceRecording = async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) {
+      return;
+    }
+
+    const result = await new Promise<{ audioUrl: string; durationSeconds: number } | null>((resolve) => {
+      recorder.onstop = () => {
+        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        voiceChunksRef.current = [];
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve(typeof reader.result === 'string' ? { audioUrl: reader.result, durationSeconds: voiceSeconds } : null);
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      recorder.stop();
+    });
+
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    if (voiceTimerRef.current) {
+      clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
+    }
+    setIsRecordingVoice(false);
+
+    if (!result || !socketRef.current || !activeContact) {
+      setVoiceSeconds(0);
+      return;
+    }
+
+    socketRef.current.emit(
+      'message:send',
+      {
+        recipientId: activeContact.id,
+        kind: 'voice',
+        voice: result,
+        replyToMessageId: replyMessage?.id,
+      },
+      (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+        if (!response.ok || !response.message) {
+          setPageError(response.error || 'Не удалось отправить голосовое сообщение');
+          return;
+        }
+
+        setMessages((prev) => upsertMessage(prev, response.message!));
+        setSidebarItems((prev) => {
+          const existing = prev.find((contact) => contact.id === activeContact.id);
+          if (!existing) {
+            return prev;
+          }
+
+          return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
+        });
+        setReplyMessage(null);
+        setVoiceSeconds(0);
+      },
+    );
+  };
+
+  const startVoiceRecording = async () => {
+    if (isRecordingVoice) {
+      await stopVoiceRecording();
+      return;
+    }
+
+    if (typeof window === 'undefined' || !window.MediaRecorder) {
+      setPageError('Голосовые сообщения не поддерживаются этим браузером');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      voiceStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      voiceChunksRef.current = [];
+      setVoiceSeconds(0);
+      setIsRecordingVoice(true);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.start();
+      voiceTimerRef.current = setInterval(() => {
+        setVoiceSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось включить запись голоса');
+    }
   };
 
   const submitEdit = (messageId: string) => {
@@ -521,6 +678,7 @@ export default function ChatPage() {
         mode,
         initiator: true,
       });
+      setCallOverlayVisible(true);
     });
   };
 
@@ -593,6 +751,7 @@ export default function ChatPage() {
                     const ownMessage = message.senderId === user.id;
                     const isEditing = editingMessageId === message.id;
                     const isCallEvent = message.kind === 'call';
+                    const isVoiceMessage = message.kind === 'voice';
 
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
@@ -601,7 +760,7 @@ export default function ChatPage() {
                           data-message-id={message.id}
                           className={isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
                           onContextMenu={(event) => {
-                            if (!ownMessage || message.deletedAt || isCallEvent) {
+                            if (message.deletedAt || isCallEvent) {
                               return;
                             }
 
@@ -610,7 +769,7 @@ export default function ChatPage() {
                             openMessageActions(message.id);
                           }}
                           onTouchStart={() => {
-                            if (!ownMessage || message.deletedAt || isCallEvent) {
+                            if (message.deletedAt || isCallEvent) {
                               return;
                             }
 
@@ -629,7 +788,20 @@ export default function ChatPage() {
                             </div>
                           ) : (
                             <>
-                              <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
+                              {message.replyTo ? (
+                                <button type="button" className={styles.replyPreview} onClick={() => {
+                                  const target = messageNodeMapRef.current.get(message.replyTo!.id);
+                                  target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}>
+                                  <span className={styles.replyAuthor}>{message.replyTo.senderId === user.id ? 'Вы' : activeContact?.displayName || activeContact?.username}</span>
+                                  <span className={styles.replyText}>{getReplySnippet(message.replyTo)}</span>
+                                </button>
+                              ) : null}
+                              {isVoiceMessage && message.voice ? (
+                                <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
+                              ) : (
+                                <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
+                              )}
                               <div className={isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
                                 <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
                                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -637,10 +809,31 @@ export default function ChatPage() {
                                 {message.updatedAt && !message.deletedAt && !isCallEvent ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
                                 {ownMessage && !isCallEvent ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
                               </div>
-                              {ownMessage && !message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
+                              {!message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
                                 <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
-                                  <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button>
-                                  <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>
+                                  <button type="button" className={styles.messageTool} onClick={() => { setReplyMessage(message); setActionMessageId(null); }}>Ответить</button>
+                                  {ownMessage && message.kind !== 'voice' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
+                                  {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
+                                </div>
+                              ) : null}
+                              {!isCallEvent ? (
+                                <div className={styles.reactionRow}>
+                                  {message.reactions?.map((reaction) => (
+                                    <button
+                                      key={reaction.emoji}
+                                      type="button"
+                                      className={`${styles.reactionChip} ${reaction.userIds.includes(user.id) ? styles.reactionChipActive : ''}`}
+                                      onClick={() => toggleReaction(message.id, reaction.emoji)}
+                                    >
+                                      <span>{reaction.emoji}</span>
+                                      <span>{reaction.userIds.length}</span>
+                                    </button>
+                                  ))}
+                                  <div className={styles.quickReactionRow}>
+                                    {EMOJI_OPTIONS.slice(0, 4).map((emoji) => (
+                                      <button key={emoji} type="button" className={styles.quickReaction} onClick={() => toggleReaction(message.id, emoji)}>{emoji}</button>
+                                    ))}
+                                  </div>
                                 </div>
                               ) : null}
                             </>
@@ -655,6 +848,28 @@ export default function ChatPage() {
 
               <div className={styles.composer}>
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
+                {replyMessage ? (
+                  <div className={styles.replyBanner}>
+                    <div>
+                      <strong className={styles.replyBannerTitle}>Ответ на сообщение</strong>
+                      <p className={styles.replyBannerText}>{getMessagePreview(replyMessage)}</p>
+                    </div>
+                    <button type="button" className={styles.replyBannerClose} onClick={() => setReplyMessage(null)}>X</button>
+                  </div>
+                ) : null}
+                <div className={styles.composerToolbar}>
+                  <button type="button" className={styles.secondaryButton} onClick={() => setShowEmojiPicker((prev) => !prev)}>Эмодзи</button>
+                  <button type="button" className={styles.secondaryButton} onClick={() => startVoiceRecording()}>
+                    {isRecordingVoice ? `Стоп ${voiceSeconds}s` : 'Голос'}
+                  </button>
+                </div>
+                {showEmojiPicker ? (
+                  <div className={styles.emojiPicker}>
+                    {EMOJI_OPTIONS.map((emoji) => (
+                      <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
+                    ))}
+                  </div>
+                ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
                   <button type="submit" className={styles.composerButton}>Отправить</button>
@@ -673,7 +888,20 @@ export default function ChatPage() {
         </section>
       </div>
 
-      {callSession && socketRef.current ? <VideoCall socket={socketRef.current} call={callSession} iceServers={iceServers} onClose={() => setCallSession(null)} /> : null}
+      {callSession && socketRef.current ? (
+        <VideoCall
+          socket={socketRef.current}
+          call={callSession}
+          iceServers={iceServers}
+          minimized={!callOverlayVisible}
+          onMinimize={() => setCallOverlayVisible(false)}
+          onRestore={() => setCallOverlayVisible(true)}
+          onClose={() => {
+            setCallSession(null);
+            setCallOverlayVisible(true);
+          }}
+        />
+      ) : null}
     </>
   );
 }
