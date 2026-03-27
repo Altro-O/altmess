@@ -7,10 +7,11 @@ import { useAuth } from './AuthProvider';
 
 export default function Navigation() {
   const { isAuthenticated, user, logout } = useAuth();
+  const brandHref = isAuthenticated ? '/dashboard/chat' : '/';
 
   return (
     <nav className={styles.navbar}>
-      <Link href="/" className={styles.brand}>
+      <Link href={brandHref} className={styles.brand}>
         <span className={styles.brandMark}>
           <Image src="/altmess.jpeg" alt="Altmess" width={42} height={42} className={styles.brandMarkImage} />
         </span>

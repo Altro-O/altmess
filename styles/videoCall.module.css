@@ -162,6 +162,8 @@
   z-index: 2;
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 14px;
   padding: 12px;
   border-radius: 999px;
@@ -170,22 +172,53 @@
 }
 
 .control,
-.danger {
-  width: 58px;
-  height: 58px;
+.danger,
+.controlWide,
+.dangerWide,
+.acceptWide {
+  min-width: 58px;
+  min-height: 58px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   display: grid;
   place-items: center;
   color: white;
+  padding: 0 20px;
 }
 
 .control {
   background: rgba(255, 255, 255, 0.18);
 }
 
+.controlWide {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .danger {
   background: linear-gradient(135deg, #ff5f6d, #e5484d);
+}
+
+.dangerWide {
+  background: linear-gradient(135deg, #ff5f6d, #e5484d);
+}
+
+.acceptWide {
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+}
+
+.controlTitle,
+.controlLabel {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.remoteAudio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
 }
 
 @media (max-width: 700px) {
@@ -204,5 +237,7 @@
 
   .controls {
     bottom: 18px;
+    width: calc(100% - 24px);
+    border-radius: 28px;
   }
 }

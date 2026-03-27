@@ -34,6 +34,14 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
+  const ensureRemotePlayback = async () => {
+    try {
+      await remoteAudioRef.current?.play();
+    } catch {
+      return;
+    }
+  };
+
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
     setVideoEnabled(call.mode === 'video');
@@ -55,12 +63,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
     if (remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current
-        .play()
-        .catch(() => null);
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1;
     }
 
     remoteStreamRef.current = remoteStream;
+    ensureRemotePlayback();
   }, [remoteStream]);
 
   const closeResources = () => {
@@ -138,6 +146,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
         await peerConnection.setLocalDescription(answer);
         socket.emit('webrtc:answer', { callId: call.callId, answer });
         setPhase('active');
+        ensureRemotePlayback();
       } catch (error) {
         console.error('Failed to handle offer:', error);
         setPhase('error');
@@ -157,6 +166,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
         }
       }
       setPhase('active');
+      ensureRemotePlayback();
     };
 
     const handleIceCandidate = async ({ callId, candidate }: { callId: string; candidate: RTCIceCandidateInit }) => {
@@ -255,6 +265,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
       setRemoteStream(incomingStream);
       setPhase('active');
+      ensureRemotePlayback();
     };
 
     peerConnection.onconnectionstatechange = () => {
@@ -290,6 +301,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const acceptCall = async () => {
     try {
       await createLocalMedia();
+      await ensureRemotePlayback();
       setPhase('connecting');
       socket.emit('call:accept', { callId: call.callId });
     } catch (error) {
@@ -324,6 +336,11 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     });
   };
 
+  const closeOverlay = () => {
+    closeResources();
+    onClose();
+  };
+
   const statusText = useMemo(() => {
     if (phase === 'incoming') return 'Входящий звонок';
     if (phase === 'outgoing') return 'Ожидаем ответ';
@@ -346,8 +363,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
             <h3 className={styles.incomingTitle}>{call.mode === 'video' ? 'Видеозвонок' : 'Голосовой звонок'}</h3>
             <p className={styles.incomingText}>От {call.peerName}</p>
             <div className={styles.incomingActions}>
-              <button className={styles.danger} onClick={rejectCall}>X</button>
-              <button className={styles.control} onClick={acceptCall}>OK</button>
+              <button className={styles.dangerWide} onClick={rejectCall}>
+                <span className={styles.controlLabel}>Отклонить</span>
+              </button>
+              <button className={styles.acceptWide} onClick={acceptCall}>
+                <span className={styles.controlLabel}>Ответить</span>
+              </button>
             </div>
           </div>
         </div>
@@ -366,28 +387,36 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
             </div>
           )}
 
-          <audio ref={remoteAudioRef} autoPlay playsInline />
+          <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
 
           <div className={styles.localCard}>
             {call.mode === 'video' ? (
               localStream?.getVideoTracks().length ? (
                 <video ref={localVideoRef} autoPlay playsInline muted className={styles.localVideo} />
               ) : (
-                <div className={styles.audioStageMini}>{videoUnavailable ? 'No Cam' : 'Mic'}</div>
+                <div className={styles.audioStageMini}>{videoUnavailable ? 'Без камеры' : 'Микрофон'}</div>
               )
             ) : (
-              <div className={styles.audioStageMini}>Mic</div>
+              <div className={styles.audioStageMini}>Микрофон</div>
             )}
             <div className={styles.localBadge}>Вы</div>
           </div>
 
           <div className={styles.controls}>
-            <button className={styles.control} onClick={toggleAudio}>{audioEnabled ? 'M' : 'm'}</button>
-            <button className={styles.danger} onClick={endCall}>X</button>
+            <button className={styles.controlWide} onClick={toggleAudio}>
+              <span className={styles.controlTitle}>{audioEnabled ? 'Микрофон вкл' : 'Микрофон выкл'}</span>
+            </button>
+            <button className={styles.dangerWide} onClick={endCall}>
+              <span className={styles.controlTitle}>Завершить</span>
+            </button>
             {call.mode === 'video' ? (
-              <button className={styles.control} onClick={toggleVideo}>{videoEnabled ? 'V' : 'v'}</button>
+              <button className={styles.controlWide} onClick={toggleVideo}>
+                <span className={styles.controlTitle}>{videoEnabled ? 'Камера вкл' : 'Камера выкл'}</span>
+              </button>
             ) : (
-              <button className={styles.control} onClick={onClose}>OK</button>
+              <button className={styles.controlWide} onClick={closeOverlay}>
+                <span className={styles.controlTitle}>Скрыть</span>
+              </button>
             )}
           </div>
         </div>
