@@ -342,11 +342,13 @@ app.prepare().then(async () => {
       call.endedAt = endedAt;
       storedCall.status = 'missed';
       storedCall.endedAt = endedAt;
-      await persistCallLog(db, storedCall, call.recipientId);
       activeCalls.delete(callId);
       ringTimeouts.delete(callId);
       emitToUser(call.callerId, 'call:missed', { callId, byUserId: call.recipientId });
       emitToUser(call.recipientId, 'call:missed', { callId, byUserId: call.recipientId });
+      persistCallLog(db, storedCall, call.recipientId).catch((error) => {
+        console.error('Failed to persist missed call log:', error);
+      });
     }, RING_TIMEOUT_MS);
 
     ringTimeouts.set(callId, timeout);
@@ -954,13 +956,18 @@ app.prepare().then(async () => {
       clearRingTimeout(call.id);
       call.status = 'active';
       storedCall.status = 'active';
-      createCallLogMessage(db, { ...storedCall, status: 'accepted' }, currentUser.id);
-      await writeDb(db);
-      const latestMessage = sanitizeMessage(db.messages[db.messages.length - 1]);
-      emitToUser(call.callerId, 'message:new', latestMessage);
-      emitToUser(call.recipientId, 'message:new', latestMessage);
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:accepted', { callId, byUserId: currentUser.id });
+      createCallLogMessage(db, { ...storedCall, status: 'accepted' }, currentUser.id);
+      writeDb(db)
+        .then(() => {
+          const latestMessage = sanitizeMessage(db.messages[db.messages.length - 1]);
+          emitToUser(call.callerId, 'message:new', latestMessage);
+          emitToUser(call.recipientId, 'message:new', latestMessage);
+        })
+        .catch((error) => {
+          console.error('Failed to persist accepted call log:', error);
+        });
     });
 
     socket.on('call:reject', async ({ callId }) => {
@@ -976,10 +983,12 @@ app.prepare().then(async () => {
       storedCall.status = 'rejected';
       storedCall.endedAt = new Date().toISOString();
       call.endedAt = storedCall.endedAt;
-      await persistCallLog(db, storedCall, currentUser.id);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:rejected', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:rejected', { callId, byUserId: currentUser.id });
+      persistCallLog(db, storedCall, currentUser.id).catch((error) => {
+        console.error('Failed to persist rejected call log:', error);
+      });
     });
 
     socket.on('call:end', async ({ callId }) => {
@@ -995,10 +1004,12 @@ app.prepare().then(async () => {
       storedCall.status = 'ended';
       storedCall.endedAt = new Date().toISOString();
       call.endedAt = storedCall.endedAt;
-      await persistCallLog(db, storedCall, currentUser.id);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:ended', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:ended', { callId, byUserId: currentUser.id });
+      persistCallLog(db, storedCall, currentUser.id).catch((error) => {
+        console.error('Failed to persist ended call log:', error);
+      });
     });
 
     socket.on('webrtc:offer', ({ callId, offer }) => {
@@ -1051,9 +1062,11 @@ app.prepare().then(async () => {
           call.endedAt = new Date().toISOString();
           storedCall.status = 'ended';
           storedCall.endedAt = call.endedAt;
-          await persistCallLog(db, storedCall, currentUser.id);
           activeCalls.delete(call.id);
           emitToUser(getCallPeerId(call, currentUser.id), 'call:ended', { callId: call.id, byUserId: currentUser.id });
+          persistCallLog(db, storedCall, currentUser.id).catch((error) => {
+            console.error('Failed to persist disconnect call log:', error);
+          });
         });
 
       if (!isUserOnline(currentUser.id)) {
