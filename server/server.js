@@ -333,47 +333,60 @@ app.prepare().then(async () => {
     return buildContactList(currentUserId).filter((contact) => contact.lastMessage || contact.unreadCount > 0);
   }
 
-  function markConversationDelivered(userId) {
-    const db = readDb();
-    const now = new Date().toISOString();
-    let changed = false;
+  function emitMessageStatus(message) {
+    const payload = {
+      id: message.id,
+      senderId: message.senderId,
+      recipientId: message.recipientId,
+      status: message.status,
+      deliveredAt: message.deliveredAt,
+      readAt: message.readAt,
+    };
 
-    db.messages.forEach((message) => {
-      if (message.recipientId === userId && !message.deliveredAt) {
-        message.deliveredAt = now;
-        message.status = message.readAt ? 'read' : 'delivered';
-        changed = true;
-        emitToUser(message.senderId, 'message:status', {
-          id: message.id,
-          status: message.status,
-          deliveredAt: message.deliveredAt,
-          readAt: message.readAt,
-        });
-      }
-    });
-
-    if (changed) {
-      writeDb(db);
-    }
+    emitToUser(message.senderId, 'message:status', payload);
+    emitToUser(message.recipientId, 'message:status', payload);
   }
 
-  function markConversationRead(currentUserId, contactId) {
+  function markMessagesDelivered(currentUserId, messageIds = []) {
     const db = readDb();
     const now = new Date().toISOString();
     const changedIds = [];
+    const allowedIds = new Set((Array.isArray(messageIds) ? messageIds : []).map((value) => String(value)));
 
     db.messages.forEach((message) => {
-      if (message.senderId === contactId && message.recipientId === currentUserId && !message.readAt) {
+      if (message.recipientId === currentUserId && !message.deliveredAt && allowedIds.has(message.id)) {
+        message.deliveredAt = now;
+        message.status = message.readAt ? 'read' : 'delivered';
+        changedIds.push(message.id);
+        emitMessageStatus(message);
+      }
+    });
+
+    if (changedIds.length > 0) {
+      writeDb(db);
+    }
+
+    return changedIds;
+  }
+
+  function markConversationRead(currentUserId, contactId, messageIds = []) {
+    const db = readDb();
+    const now = new Date().toISOString();
+    const changedIds = [];
+    const allowedIds = new Set((Array.isArray(messageIds) ? messageIds : []).map((value) => String(value)));
+
+    db.messages.forEach((message) => {
+      if (
+        message.senderId === contactId &&
+        message.recipientId === currentUserId &&
+        !message.readAt &&
+        (allowedIds.size === 0 || allowedIds.has(message.id))
+      ) {
         message.deliveredAt = message.deliveredAt || now;
         message.readAt = now;
         message.status = 'read';
         changedIds.push(message.id);
-        emitToUser(message.senderId, 'message:status', {
-          id: message.id,
-          status: 'read',
-          deliveredAt: message.deliveredAt,
-          readAt: message.readAt,
-        });
+        emitMessageStatus(message);
       }
     });
 
@@ -525,19 +538,19 @@ app.prepare().then(async () => {
       return;
     }
 
-    markConversationRead(req.user.id, contactId);
     const db = readDb();
     res.json({ messages: getConversationMessages(db, req.user.id, contactId).map(sanitizeMessage) });
   });
 
   expressApp.post('/api/messages/read', authMiddleware, (req, res) => {
     const contactId = String(req.body?.contactId || '');
+    const messageIds = Array.isArray(req.body?.messageIds) ? req.body.messageIds : [];
     if (!contactId) {
       res.status(400).json({ error: 'Не указан contactId' });
       return;
     }
 
-    res.json({ ok: true, messageIds: markConversationRead(req.user.id, contactId) });
+    res.json({ ok: true, messageIds: markConversationRead(req.user.id, contactId, messageIds) });
   });
 
   expressApp.get('/api/rtc/config', authMiddleware, (req, res) => {
@@ -623,7 +636,6 @@ app.prepare().then(async () => {
     socket.data.isVisible = true;
     setUserSocket(currentUser.id, socket.id);
     socket.emit('presence:sync', buildPresencePayload(currentUser.id));
-    markConversationDelivered(currentUser.id);
     broadcastPresence(currentUser.id);
     syncPendingCall(currentUser.id);
 
@@ -648,8 +660,8 @@ app.prepare().then(async () => {
         senderId: currentUser.id,
         recipientId,
         content,
-        status: isUserOnline(recipientId) ? 'delivered' : 'sent',
-        deliveredAt: isUserOnline(recipientId) ? now : null,
+        status: 'sent',
+        deliveredAt: null,
         readAt: null,
         createdAt: now,
         updatedAt: null,
@@ -675,6 +687,11 @@ app.prepare().then(async () => {
       }
 
       callback?.({ ok: true, message });
+    });
+
+    socket.on('message:delivered', async ({ messageIds }, callback) => {
+      const deliveredIds = markMessagesDelivered(currentUser.id, messageIds);
+      callback?.({ ok: true, messageIds: deliveredIds });
     });
 
     socket.on('message:edit', ({ messageId, content }, callback) => {
@@ -721,10 +738,14 @@ app.prepare().then(async () => {
       callback?.({ ok: true, message: payload });
     });
 
-    socket.on('conversation:read', ({ contactId }) => {
-      if (contactId) {
-        markConversationRead(currentUser.id, String(contactId));
+    socket.on('conversation:read', ({ contactId, messageIds }, callback) => {
+      if (!contactId) {
+        callback?.({ ok: false, messageIds: [] });
+        return;
       }
+
+      const readIds = markConversationRead(currentUser.id, String(contactId), messageIds);
+      callback?.({ ok: true, messageIds: readIds });
     });
 
     socket.on('call:start', async (payload, callback) => {

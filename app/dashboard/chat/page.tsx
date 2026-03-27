@@ -9,6 +9,7 @@ import { apiFetch, type ChatMessage, type Contact } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
 const MOBILE_BREAKPOINT = 960;
+const READ_VISIBILITY_THRESHOLD = 0.8;
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -82,8 +83,13 @@ export default function ChatPage() {
   const [callSession, setCallSession] = useState<CallSession | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
+  const messageAreaRef = useRef<HTMLDivElement | null>(null);
+  const messageNodeMapRef = useRef(new Map<string, HTMLDivElement>());
+  const pendingReadIdsRef = useRef(new Set<string>());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestedContactId = searchParams?.get('contactId') || null;
+  const currentUserId = user?.id || null;
 
   const loadSidebar = useCallback(async () => {
     if (!token) {
@@ -101,11 +107,13 @@ export default function ChatPage() {
         return prev;
       }
 
-      return nextItems[0]?.id ?? null;
-    });
-  }, [searchQuery, token]);
+      if (requestedContactId && nextItems.some((item) => item.id === requestedContactId)) {
+        return requestedContactId;
+      }
 
-  const requestedContactId = searchParams?.get('contactId') || null;
+      return null;
+    });
+  }, [requestedContactId, searchQuery, token]);
 
   useEffect(() => {
     activeContactRef.current = activeContactId;
@@ -165,7 +173,11 @@ export default function ChatPage() {
 
         socket.on('message:new', (message: ChatMessage) => {
           const currentContactId = activeContactRef.current;
-          const partnerId = message.senderId === user.id ? message.recipientId : message.senderId;
+          const partnerId = message.senderId === currentUserId ? message.recipientId : message.senderId;
+
+          if (message.recipientId === currentUserId) {
+            socket.emit('message:delivered', { messageIds: [message.id] });
+          }
 
           setSidebarItems((prev) => {
             const existing = prev.find((contact) => contact.id === partnerId);
@@ -173,23 +185,17 @@ export default function ChatPage() {
               return prev;
             }
 
-            const nextContact = {
-              ...existing,
-              lastMessage: message,
-              unreadCount:
-                message.senderId !== user.id && partnerId !== currentContactId
-                  ? (existing.unreadCount || 0) + 1
-                  : 0,
-            };
+             const nextContact = {
+               ...existing,
+               lastMessage: message,
+                unreadCount: message.senderId !== currentUserId ? (existing.unreadCount || 0) + 1 : 0,
+              };
 
             return [nextContact, ...prev.filter((contact) => contact.id !== partnerId)];
           });
 
           if (partnerId === currentContactId) {
             setMessages((prev) => upsertMessage(prev, message));
-            if (message.senderId !== user.id) {
-              socket.emit('conversation:read', { contactId: partnerId });
-            }
           }
         });
 
@@ -197,9 +203,15 @@ export default function ChatPage() {
           setMessages((prev) => prev.map((message) => (message.id === patch.id ? { ...message, ...patch } : message)));
           setSidebarItems((prev) =>
             prev.map((contact) =>
-              contact.lastMessage?.id === patch.id
-                ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
-                : contact,
+              contact.id === patch.senderId && patch.recipientId === currentUserId && patch.status === 'read'
+                ? {
+                    ...contact,
+                    unreadCount: Math.max(0, (contact.unreadCount || 0) - 1),
+                    lastMessage: contact.lastMessage?.id === patch.id ? { ...contact.lastMessage, ...patch } : contact.lastMessage,
+                  }
+                : contact.lastMessage?.id === patch.id
+                  ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
+                  : contact,
             ),
           );
         });
@@ -237,7 +249,7 @@ export default function ChatPage() {
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [token, user, router]);
+  }, [currentUserId, router, token, user]);
 
   useEffect(() => {
     loadSidebar().catch((error) => {
@@ -254,11 +266,17 @@ export default function ChatPage() {
     apiFetch<{ messages: ChatMessage[] }>(`/api/messages?contactId=${activeContactId}`, { token })
       .then((response) => {
         setMessages(response.messages);
-        setSidebarItems((prev) => prev.map((contact) => (contact.id === activeContactId ? { ...contact, unreadCount: 0 } : contact)));
-        socketRef.current?.emit('conversation:read', { contactId: activeContactId });
+
+        const undeliveredIncomingIds = response.messages
+          .filter((message) => message.senderId === activeContactId && message.recipientId === currentUserId && !message.deliveredAt)
+          .map((message) => message.id);
+
+        if (undeliveredIncomingIds.length > 0) {
+          socketRef.current?.emit('message:delivered', { messageIds: undeliveredIncomingIds });
+        }
       })
       .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'));
-  }, [activeContactId, token]);
+  }, [activeContactId, currentUserId, token]);
 
   useEffect(() => {
     if (!requestedContactId || !sidebarItems.some((contact) => contact.id === requestedContactId)) {
@@ -274,6 +292,98 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const registerMessageNode = useCallback((messageId: string, node: HTMLDivElement | null) => {
+    if (node) {
+      messageNodeMapRef.current.set(messageId, node);
+      return;
+    }
+
+    messageNodeMapRef.current.delete(messageId);
+    pendingReadIdsRef.current.delete(messageId);
+  }, []);
+
+  useEffect(() => {
+    if (!socketRef.current || !activeContactId || document.visibilityState !== 'visible') {
+      return;
+    }
+
+    if (isMobileLayout && !showMobileChat) {
+      return;
+    }
+
+    const unreadIncoming = messages.filter(
+      (message) => message.senderId === activeContactId && message.recipientId === currentUserId && !message.readAt,
+    );
+
+    if (unreadIncoming.length === 0) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visibleIds = entries
+          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= READ_VISIBILITY_THRESHOLD)
+          .map((entry) => entry.target.getAttribute('data-message-id'))
+          .filter((value): value is string => Boolean(value))
+          .filter((messageId) => !pendingReadIdsRef.current.has(messageId));
+
+        if (visibleIds.length === 0) {
+          return;
+        }
+
+        visibleIds.forEach((messageId) => pendingReadIdsRef.current.add(messageId));
+        socketRef.current?.emit(
+          'conversation:read',
+          { contactId: activeContactId, messageIds: visibleIds },
+          (response: { ok: boolean; messageIds?: string[] }) => {
+            const acknowledgedIds = response?.messageIds || [];
+
+            acknowledgedIds.forEach((messageId) => pendingReadIdsRef.current.delete(messageId));
+
+            if (!response?.ok || acknowledgedIds.length === 0) {
+              visibleIds.forEach((messageId) => pendingReadIdsRef.current.delete(messageId));
+              return;
+            }
+
+            setMessages((prev) =>
+              prev.map((message) =>
+                acknowledgedIds.includes(message.id)
+                  ? {
+                      ...message,
+                      status: 'read',
+                      deliveredAt: message.deliveredAt || new Date().toISOString(),
+                      readAt: message.readAt || new Date().toISOString(),
+                    }
+                  : message,
+              ),
+            );
+
+            setSidebarItems((prev) =>
+              prev.map((contact) =>
+                contact.id === activeContactId
+                  ? { ...contact, unreadCount: Math.max(0, (contact.unreadCount || 0) - acknowledgedIds.length) }
+                  : contact,
+              ),
+            );
+          },
+        );
+      },
+      {
+        root: messageAreaRef.current,
+        threshold: [READ_VISIBILITY_THRESHOLD],
+      },
+    );
+
+    unreadIncoming.forEach((message) => {
+      const node = messageNodeMapRef.current.get(message.id);
+      if (node) {
+        observer.observe(node);
+      }
+    });
+
+    return () => observer.disconnect();
+  }, [activeContactId, currentUserId, isMobileLayout, messages, showMobileChat]);
 
   useEffect(() => {
     const syncViewport = () => {
@@ -473,7 +583,7 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              <div className={styles.messageArea}>
+              <div ref={messageAreaRef} className={styles.messageArea}>
                 <div className={styles.messageStack}>
                   {messages.map((message) => {
                     const ownMessage = message.senderId === user.id;
@@ -482,6 +592,8 @@ export default function ChatPage() {
                     return (
                       <div key={message.id} className={ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
                         <div
+                          ref={ownMessage ? undefined : (node) => registerMessageNode(message.id, node)}
+                          data-message-id={message.id}
                           className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
                           onContextMenu={(event) => {
                             if (!ownMessage || message.deletedAt) {
