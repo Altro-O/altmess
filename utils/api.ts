@@ -3,6 +3,11 @@ export interface AuthUser {
   username: string;
   email: string;
   createdAt?: string;
+  displayName?: string;
+  bio?: string;
+  avatarUrl?: string;
+  avatarColor?: string;
+  lastSeenAt?: string | null;
 }
 
 export interface Contact extends AuthUser {
@@ -16,6 +21,8 @@ export interface ChatMessage {
   senderId: string;
   recipientId: string;
   content: string;
+  updatedAt?: string | null;
+  deletedAt?: string | null;
   status: 'sent' | 'delivered' | 'read';
   deliveredAt: string | null;
   readAt: string | null;

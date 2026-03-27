@@ -58,6 +58,11 @@ function publicUser(user) {
     username: user.username,
     email: user.email,
     createdAt: user.createdAt,
+    displayName: user.displayName || user.username,
+    bio: user.bio || '',
+    avatarUrl: user.avatarUrl || '',
+    avatarColor: user.avatarColor || 'ocean',
+    lastSeenAt: user.lastSeenAt || null,
   };
 }
 
@@ -112,6 +117,17 @@ function getConversationMessages(db, firstUserId, secondUserId) {
     .sort((first, second) => first.createdAt.localeCompare(second.createdAt));
 }
 
+function sanitizeMessage(message) {
+  if (!message.deletedAt) {
+    return message;
+  }
+
+  return {
+    ...message,
+    content: 'Сообщение удалено',
+  };
+}
+
 app.prepare().then(() => {
   ensureDataFile();
 
@@ -158,12 +174,13 @@ app.prepare().then(() => {
     const db = readDb();
     return db.users
       .filter((user) => user.id !== currentUserId)
-      .map((user) => ({ id: user.id, online: isUserOnline(user.id) }));
+      .map((user) => ({ id: user.id, online: isUserOnline(user.id), lastSeenAt: user.lastSeenAt || null }));
   }
 
   function broadcastPresence(userId) {
     const db = readDb();
-    const payload = { id: userId, online: isUserOnline(userId) };
+    const currentUser = db.users.find((user) => user.id === userId);
+    const payload = { id: userId, online: isUserOnline(userId), lastSeenAt: currentUser?.lastSeenAt || null };
     db.users.filter((user) => user.id !== userId).forEach((user) => emitToUser(user.id, 'presence:update', payload));
   }
 
@@ -192,7 +209,7 @@ app.prepare().then(() => {
         return {
           ...publicUser(user),
           online: isUserOnline(user.id),
-          lastMessage,
+          lastMessage: lastMessage ? sanitizeMessage(lastMessage) : null,
           unreadCount,
         };
       })
@@ -321,6 +338,11 @@ app.prepare().then(() => {
       email: trimmedEmail,
       passwordHash: await bcrypt.hash(String(password), 10),
       createdAt: new Date().toISOString(),
+      displayName: trimmedUsername,
+      bio: '',
+      avatarUrl: '',
+      avatarColor: 'ocean',
+      lastSeenAt: null,
     };
 
     db.users.push(user);
@@ -350,6 +372,31 @@ app.prepare().then(() => {
     res.json({ user: req.user, iceServers: getIceServers() });
   });
 
+  expressApp.patch('/api/profile', authMiddleware, (req, res) => {
+    const db = readDb();
+    const user = db.users.find((entry) => entry.id === req.user.id);
+
+    if (!user) {
+      res.status(404).json({ error: 'Пользователь не найден' });
+      return;
+    }
+
+    const nextDisplayName = String(req.body?.displayName || user.displayName || user.username).trim();
+    const nextBio = String(req.body?.bio || '').trim();
+    const nextAvatarUrl = String(req.body?.avatarUrl || '').trim();
+    const nextAvatarColor = String(req.body?.avatarColor || user.avatarColor || 'ocean');
+
+    user.displayName = nextDisplayName.slice(0, 32) || user.username;
+    user.bio = nextBio.slice(0, 90);
+    user.avatarUrl = nextAvatarUrl.slice(0, 500);
+    user.avatarColor = ['ocean', 'mint', 'sunset', 'berry', 'slate'].includes(nextAvatarColor)
+      ? nextAvatarColor
+      : 'ocean';
+
+    writeDb(db);
+    res.json({ user: publicUser(user) });
+  });
+
   expressApp.get('/api/users/search', authMiddleware, (req, res) => {
     res.json({ users: buildContactList(req.user.id, req.query.q || '') });
   });
@@ -371,7 +418,7 @@ app.prepare().then(() => {
 
     markConversationRead(req.user.id, contactId);
     const db = readDb();
-    res.json({ messages: getConversationMessages(db, req.user.id, contactId) });
+    res.json({ messages: getConversationMessages(db, req.user.id, contactId).map(sanitizeMessage) });
   });
 
   expressApp.post('/api/messages/read', authMiddleware, (req, res) => {
@@ -433,6 +480,8 @@ app.prepare().then(() => {
         deliveredAt: isUserOnline(recipientId) ? now : null,
         readAt: null,
         createdAt: now,
+        updatedAt: null,
+        deletedAt: null,
       };
 
       db.messages.push(message);
@@ -440,6 +489,50 @@ app.prepare().then(() => {
       emitToUser(recipientId, 'message:new', message);
       emitToUser(currentUser.id, 'message:new', message);
       callback?.({ ok: true, message });
+    });
+
+    socket.on('message:edit', ({ messageId, content }, callback) => {
+      const db = readDb();
+      const message = db.messages.find((entry) => entry.id === String(messageId));
+      const nextContent = String(content || '').trim();
+
+      if (!message || message.senderId !== currentUser.id || message.deletedAt) {
+        callback?.({ ok: false, error: 'Сообщение нельзя изменить' });
+        return;
+      }
+
+      if (!nextContent) {
+        callback?.({ ok: false, error: 'Пустое сообщение' });
+        return;
+      }
+
+      message.content = nextContent;
+      message.updatedAt = new Date().toISOString();
+      writeDb(db);
+
+      const payload = sanitizeMessage(message);
+      emitToUser(message.senderId, 'message:update', payload);
+      emitToUser(message.recipientId, 'message:update', payload);
+      callback?.({ ok: true, message: payload });
+    });
+
+    socket.on('message:delete', ({ messageId }, callback) => {
+      const db = readDb();
+      const message = db.messages.find((entry) => entry.id === String(messageId));
+
+      if (!message || message.senderId !== currentUser.id || message.deletedAt) {
+        callback?.({ ok: false, error: 'Сообщение нельзя удалить' });
+        return;
+      }
+
+      message.deletedAt = new Date().toISOString();
+      message.updatedAt = message.deletedAt;
+      writeDb(db);
+
+      const payload = sanitizeMessage(message);
+      emitToUser(message.senderId, 'message:update', payload);
+      emitToUser(message.recipientId, 'message:update', payload);
+      callback?.({ ok: true, message: payload });
     });
 
     socket.on('conversation:read', ({ contactId }) => {
@@ -565,6 +658,14 @@ app.prepare().then(() => {
 
     socket.on('disconnect', () => {
       removeUserSocket(currentUser.id, socket.id);
+      if (!isUserOnline(currentUser.id)) {
+        const db = readDb();
+        const user = db.users.find((entry) => entry.id === currentUser.id);
+        if (user) {
+          user.lastSeenAt = new Date().toISOString();
+          writeDb(db);
+        }
+      }
       broadcastPresence(currentUser.id);
     });
   });

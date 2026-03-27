@@ -10,7 +10,6 @@ import styles from '../../../styles/chat.module.css';
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
-
   if (!existing) {
     return [...messages, nextMessage].sort(
       (first, second) => new Date(first.createdAt).getTime() - new Date(second.createdAt).getTime(),
@@ -20,22 +19,43 @@ function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   return messages.map((message) => (message.id === nextMessage.id ? nextMessage : message));
 }
 
-function patchMessageStatus(messages: ChatMessage[], patch: Partial<ChatMessage> & { id: string }) {
-  return messages.map((message) => (message.id === patch.id ? { ...message, ...patch } : message));
-}
-
 function getMessagePreview(message?: ChatMessage | null) {
   if (!message) {
     return 'Начните диалог';
   }
 
-  return message.content.length > 36 ? `${message.content.slice(0, 36)}...` : message.content;
+  return message.content.length > 42 ? `${message.content.slice(0, 42)}...` : message.content;
 }
 
 function getOwnStatusText(message: ChatMessage) {
   if (message.status === 'read') return 'Прочитано';
   if (message.status === 'delivered') return 'Доставлено';
   return 'Отправлено';
+}
+
+function getPresenceText(contact: Contact | null) {
+  if (!contact) {
+    return '';
+  }
+
+  if (contact.online) {
+    return contact.bio ? `В сети - ${contact.bio}` : 'В сети сейчас';
+  }
+
+  if (contact.lastSeenAt) {
+    return `Был(а) в сети ${new Date(contact.lastSeenAt).toLocaleString([], {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+  }
+
+  return contact.bio || contact.email;
+}
+
+function getAvatarLabel(contact: Contact) {
+  return (contact.displayName || contact.username).slice(0, 2).toUpperCase();
 }
 
 export default function ChatPage() {
@@ -47,6 +67,8 @@ export default function ChatPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [pageError, setPageError] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
     { urls: ['stun:stun1.l.google.com:19302'] },
@@ -67,7 +89,13 @@ export default function ChatPage() {
     const response = await apiFetch<{ dialogs?: Contact[]; users?: Contact[] }>(endpoint, { token });
     const nextItems = response.dialogs || response.users || [];
     setSidebarItems(nextItems);
-    setActiveContactId((prev) => prev ?? nextItems[0]?.id ?? null);
+    setActiveContactId((prev) => {
+      if (prev && nextItems.some((item) => item.id === prev)) {
+        return prev;
+      }
+
+      return nextItems[0]?.id ?? null;
+    });
   }, [searchQuery, token]);
 
   useEffect(() => {
@@ -85,17 +113,16 @@ export default function ChatPage() {
       return;
     }
 
-    let isMounted = true;
+    let alive = true;
 
     const bootstrap = async () => {
       try {
         const rtcResponse = await apiFetch<{ iceServers: RTCIceServer[] }>('/api/rtc/config', { token });
-        if (!isMounted) {
+        if (!alive) {
           return;
         }
 
         setIceServers(rtcResponse.iceServers);
-        await loadSidebar();
 
         const socket = io({ auth: { token } });
         socketRef.current = socket;
@@ -104,17 +131,19 @@ export default function ChatPage() {
           setPageError('Не удалось подключиться к realtime-серверу');
         });
 
-        socket.on('presence:sync', (presenceList: Array<{ id: string; online: boolean }>) => {
+        socket.on('presence:sync', (presenceList: Array<{ id: string; online: boolean; lastSeenAt: string | null }>) => {
           setSidebarItems((prev) =>
             prev.map((contact) => {
               const presence = presenceList.find((entry) => entry.id === contact.id);
-              return presence ? { ...contact, online: presence.online } : contact;
+              return presence ? { ...contact, online: presence.online, lastSeenAt: presence.lastSeenAt } : contact;
             }),
           );
         });
 
-        socket.on('presence:update', ({ id, online }: { id: string; online: boolean }) => {
-          setSidebarItems((prev) => prev.map((contact) => (contact.id === id ? { ...contact, online } : contact)));
+        socket.on('presence:update', ({ id, online, lastSeenAt }: { id: string; online: boolean; lastSeenAt: string | null }) => {
+          setSidebarItems((prev) =>
+            prev.map((contact) => (contact.id === id ? { ...contact, online, lastSeenAt } : contact)),
+          );
         });
 
         socket.on('message:new', (message: ChatMessage) => {
@@ -141,39 +170,41 @@ export default function ChatPage() {
 
           if (partnerId === currentContactId) {
             setMessages((prev) => upsertMessage(prev, message));
-
             if (message.senderId !== user.id) {
               socket.emit('conversation:read', { contactId: partnerId });
             }
           }
         });
 
-        socket.on(
-          'message:status',
-          (patch: { id: string; status: 'sent' | 'delivered' | 'read'; deliveredAt: string | null; readAt: string | null }) => {
-            setMessages((prev) => patchMessageStatus(prev, patch));
-            setSidebarItems((prev) =>
-              prev.map((contact) =>
-                contact.lastMessage?.id === patch.id
-                  ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
-                  : contact,
-              ),
-            );
-          },
-        );
+        socket.on('message:status', (patch: Partial<ChatMessage> & { id: string }) => {
+          setMessages((prev) => prev.map((message) => (message.id === patch.id ? { ...message, ...patch } : message)));
+          setSidebarItems((prev) =>
+            prev.map((contact) =>
+              contact.lastMessage?.id === patch.id
+                ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
+                : contact,
+            ),
+          );
+        });
 
-        socket.on(
-          'call:incoming',
-          ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
-            setCallSession({
-              callId,
-              peerUserId: fromUser.id,
-              peerName: fromUser.username,
-              mode,
-              initiator: false,
-            });
-          },
-        );
+        socket.on('message:update', (message: ChatMessage) => {
+          setMessages((prev) => upsertMessage(prev, message));
+          setSidebarItems((prev) =>
+            prev.map((contact) =>
+              contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact,
+            ),
+          );
+        });
+
+        socket.on('call:incoming', ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
+          setCallSession({
+            callId,
+            peerUserId: fromUser.id,
+            peerName: fromUser.displayName || fromUser.username,
+            mode,
+            initiator: false,
+          });
+        });
       } catch (error) {
         setPageError(error instanceof Error ? error.message : 'Не удалось загрузить чат');
       }
@@ -182,11 +213,11 @@ export default function ChatPage() {
     bootstrap();
 
     return () => {
-      isMounted = false;
+      alive = false;
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [loadSidebar, token, user]);
+  }, [token, user, router]);
 
   useEffect(() => {
     loadSidebar().catch((error) => {
@@ -203,9 +234,7 @@ export default function ChatPage() {
     apiFetch<{ messages: ChatMessage[] }>(`/api/messages?contactId=${activeContactId}`, { token })
       .then((response) => {
         setMessages(response.messages);
-        setSidebarItems((prev) =>
-          prev.map((contact) => (contact.id === activeContactId ? { ...contact, unreadCount: 0 } : contact)),
-        );
+        setSidebarItems((prev) => prev.map((contact) => (contact.id === activeContactId ? { ...contact, unreadCount: 0 } : contact)));
         socketRef.current?.emit('conversation:read', { contactId: activeContactId });
       })
       .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'));
@@ -220,38 +249,63 @@ export default function ChatPage() {
     [activeContactId, sidebarItems],
   );
 
-  const sendMessage = (event: React.FormEvent) => {
+  const submitMessage = (event: React.FormEvent) => {
     event.preventDefault();
-
     if (!socketRef.current || !activeContact || !inputText.trim()) {
       return;
     }
 
     const content = inputText.trim();
-    socketRef.current.emit(
-      'message:send',
-      { recipientId: activeContact.id, content },
-      (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-        if (!response.ok || !response.message) {
-          setPageError(response.error || 'Не удалось отправить сообщение');
-          return;
+    socketRef.current.emit('message:send', { recipientId: activeContact.id, content }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+      if (!response.ok || !response.message) {
+        setPageError(response.error || 'Не удалось отправить сообщение');
+        return;
+      }
+
+      setMessages((prev) => upsertMessage(prev, response.message!));
+      setSidebarItems((prev) => {
+        const existing = prev.find((contact) => contact.id === activeContact.id);
+        if (!existing) {
+          return prev;
         }
 
-        setMessages((prev) => upsertMessage(prev, response.message!));
-        setSidebarItems((prev) => {
-          const existing = prev.find((contact) => contact.id === activeContact.id);
-          if (!existing) {
-            return prev;
-          }
+        return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
+      });
+      setInputText('');
+    });
+  };
 
-          return [
-            { ...existing, lastMessage: response.message, unreadCount: 0 },
-            ...prev.filter((contact) => contact.id !== activeContact.id),
-          ];
-        });
-        setInputText('');
-      },
-    );
+  const submitEdit = (messageId: string) => {
+    if (!socketRef.current || !editingText.trim()) {
+      return;
+    }
+
+    socketRef.current.emit('message:edit', { messageId, content: editingText }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+      if (!response.ok || !response.message) {
+        setPageError(response.error || 'Не удалось изменить сообщение');
+        return;
+      }
+
+      setMessages((prev) => upsertMessage(prev, response.message!));
+      setEditingMessageId(null);
+      setEditingText('');
+    });
+  };
+
+  const deleteMessage = (messageId: string) => {
+    if (!socketRef.current) {
+      return;
+    }
+
+    socketRef.current.emit('message:delete', { messageId }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+      if (!response.ok || !response.message) {
+        setPageError(response.error || 'Не удалось удалить сообщение');
+        return;
+      }
+
+      setMessages((prev) => upsertMessage(prev, response.message!));
+      setSidebarItems((prev) => prev.map((contact) => (contact.lastMessage?.id === messageId ? { ...contact, lastMessage: response.message } : contact)));
+    });
   };
 
   const startCall = (mode: 'audio' | 'video') => {
@@ -259,24 +313,20 @@ export default function ChatPage() {
       return;
     }
 
-    socketRef.current.emit(
-      'call:start',
-      { toUserId: activeContact.id, mode },
-      (response: { ok: boolean; callId?: string; error?: string }) => {
-        if (!response.ok || !response.callId) {
-          setPageError(response.error || 'Не удалось начать звонок');
-          return;
-        }
+    socketRef.current.emit('call:start', { toUserId: activeContact.id, mode }, (response: { ok: boolean; callId?: string; error?: string }) => {
+      if (!response.ok || !response.callId) {
+        setPageError(response.error || 'Не удалось начать звонок');
+        return;
+      }
 
-        setCallSession({
-          callId: response.callId,
-          peerUserId: activeContact.id,
-          peerName: activeContact.username,
-          mode,
-          initiator: true,
-        });
-      },
-    );
+      setCallSession({
+        callId: response.callId,
+        peerUserId: activeContact.id,
+        peerName: activeContact.displayName || activeContact.username,
+        mode,
+        initiator: true,
+      });
+    });
   };
 
   if (isLoading || !user) {
@@ -289,7 +339,7 @@ export default function ChatPage() {
         <aside className={styles.sidebar}>
           <div className={styles.sidebarHeader}>
             <h1 className={styles.sidebarTitle}>Диалоги</h1>
-            <p className={styles.sidebarText}>Ищи пользователей, следи за unread и продолжай разговор с любого устройства.</p>
+            <p className={styles.sidebarText}>Список чатов теперь закреплен отдельно и не исчезает при длинной переписке.</p>
           </div>
 
           <input
@@ -302,21 +352,16 @@ export default function ChatPage() {
 
           <div className={styles.contactList}>
             {sidebarItems.map((contact) => (
-              <button
-                key={contact.id}
-                type="button"
-                className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`}
-                onClick={() => setActiveContactId(contact.id)}
-              >
-                <span className={contact.online ? styles.avatar : styles.avatarAlt}>
-                  {contact.username.slice(0, 2).toUpperCase()}
+              <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => setActiveContactId(contact.id)}>
+                <span className={`${styles.avatar} ${styles[`avatar_${contact.avatarColor || 'ocean'}`]}`}>
+                  {contact.avatarUrl ? <img src={contact.avatarUrl} alt={contact.displayName || contact.username} className={styles.avatarImage} /> : getAvatarLabel(contact)}
                 </span>
                 <span className={styles.contactMeta}>
                   <span className={styles.contactNameRow}>
-                    <span className={styles.contactName}>{contact.username}</span>
+                    <span className={styles.contactName}>{contact.displayName || contact.username}</span>
                     {contact.unreadCount ? <span className={styles.unreadBadge}>{contact.unreadCount}</span> : null}
                   </span>
-                  <span className={styles.contactPreview}>{contact.lastMessage ? getMessagePreview(contact.lastMessage) : contact.email}</span>
+                  <span className={styles.contactPreview}>{contact.lastMessage ? getMessagePreview(contact.lastMessage) : (contact.bio || contact.email)}</span>
                 </span>
               </button>
             ))}
@@ -327,9 +372,14 @@ export default function ChatPage() {
           {activeContact ? (
             <>
               <div className={styles.panelHeader}>
-                <div>
-                  <h2 className={styles.panelTitle}>Чат с {activeContact.username}</h2>
-                  <p className={styles.panelText}>{activeContact.online ? 'Сейчас в сети' : activeContact.email}</p>
+                <div className={styles.panelIdentity}>
+                  <span className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}>
+                    {activeContact.avatarUrl ? <img src={activeContact.avatarUrl} alt={activeContact.displayName || activeContact.username} className={styles.avatarImage} /> : getAvatarLabel(activeContact)}
+                  </span>
+                  <div>
+                    <h2 className={styles.panelTitle}>Чат с {activeContact.displayName || activeContact.username}</h2>
+                    <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
+                  </div>
                 </div>
                 <div className={styles.headerActions}>
                   <button type="button" className={styles.secondaryButton} onClick={() => startCall('audio')}>Аудио</button>
@@ -341,20 +391,37 @@ export default function ChatPage() {
                 <div className={styles.messageStack}>
                   {messages.map((message) => {
                     const ownMessage = message.senderId === user.id;
+                    const isEditing = editingMessageId === message.id;
 
                     return (
                       <div key={message.id} className={ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
                         <div className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}>
-                          <p className={styles.messageContent}>{message.content}</p>
-                          <div className={ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
-                            <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
-                              {new Date(message.createdAt).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                            {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
-                          </div>
+                          {isEditing ? (
+                            <div className={styles.editBox}>
+                              <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
+                              <div className={styles.editActions}>
+                                <button type="button" className={styles.smallButton} onClick={() => submitEdit(message.id)}>Сохранить</button>
+                                <button type="button" className={styles.smallMutedButton} onClick={() => { setEditingMessageId(null); setEditingText(''); }}>Отмена</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
+                              <div className={ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
+                                <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
+                                  {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                                {message.updatedAt && !message.deletedAt ? <p className={styles.messageEdited}>изменено</p> : null}
+                                {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
+                              </div>
+                              {ownMessage && !message.deletedAt ? (
+                                <div className={styles.messageTools}>
+                                  <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); }}>Ред.</button>
+                                  <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     );
@@ -365,14 +432,8 @@ export default function ChatPage() {
 
               <div className={styles.composer}>
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
-                <form onSubmit={sendMessage} className={styles.composerForm}>
-                  <input
-                    type="text"
-                    value={inputText}
-                    onChange={(event) => setInputText(event.target.value)}
-                    placeholder="Введите сообщение..."
-                    className={styles.composerInput}
-                  />
+                <form onSubmit={submitMessage} className={styles.composerForm}>
+                  <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
                   <button type="submit" className={styles.composerButton}>Отправить</button>
                 </form>
               </div>
@@ -382,21 +443,14 @@ export default function ChatPage() {
               <div className={styles.emptyCard}>
                 <div className={styles.emptyIcon}>*</div>
                 <h3 className={styles.emptyTitle}>Пока нет диалогов</h3>
-                <p className={styles.emptyText}>Зарегистрируйте второго пользователя на этом сервере или найдите его через поиск.</p>
+                <p className={styles.emptyText}>Найдите пользователя через поиск или дождитесь нового сообщения.</p>
               </div>
             </div>
           )}
         </section>
       </div>
 
-      {callSession && socketRef.current ? (
-        <VideoCall
-          socket={socketRef.current}
-          call={callSession}
-          iceServers={iceServers}
-          onClose={() => setCallSession(null)}
-        />
-      ) : null}
+      {callSession && socketRef.current ? <VideoCall socket={socketRef.current} call={callSession} iceServers={iceServers} onClose={() => setCallSession(null)} /> : null}
     </>
   );
 }

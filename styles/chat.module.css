@@ -1,14 +1,18 @@
 .chatPage {
   display: grid;
   grid-template-columns: 320px 1fr;
-  min-height: calc(100vh - 78px);
+  height: calc(100vh - 78px);
+  overflow: hidden;
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   padding: 18px;
   border-right: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.56);
   backdrop-filter: blur(16px);
+  overflow: auto;
 }
 
 .sidebarHeader {
@@ -30,6 +34,7 @@
 .contactList {
   display: grid;
   gap: 10px;
+  padding-bottom: 18px;
 }
 
 .searchInput {
@@ -76,6 +81,7 @@
   place-items: center;
   color: white;
   font-weight: 800;
+  overflow: hidden;
 }
 
 .avatar {
@@ -84,6 +90,18 @@
 
 .avatarAlt {
   background: linear-gradient(135deg, #13b7a6, #19a974);
+}
+
+.avatar_ocean { background: linear-gradient(135deg, #1f6fff, #12b4d6); }
+.avatar_mint { background: linear-gradient(135deg, #0ea472, #30cba5); }
+.avatar_sunset { background: linear-gradient(135deg, #f97316, #fb7185); }
+.avatar_berry { background: linear-gradient(135deg, #7c3aed, #ec4899); }
+.avatar_slate { background: linear-gradient(135deg, #334155, #64748b); }
+
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .contactMeta {
@@ -128,6 +146,8 @@
 .panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at top, rgba(31, 111, 255, 0.1), transparent 26%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.46));
@@ -142,6 +162,25 @@
   border-bottom: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.68);
   backdrop-filter: blur(14px);
+}
+
+.panelIdentity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.headerAvatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 800;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .panelTitle {
@@ -178,8 +217,8 @@
 
 .messageStack {
   display: grid;
-  gap: 12px;
-  max-width: 860px;
+  gap: 18px;
+  max-width: 980px;
 }
 
 .messageRowOwn,
@@ -193,9 +232,9 @@
 
 .messageBubbleOwn,
 .messageBubblePeer {
-  max-width: min(560px, 88%);
-  padding: 14px 16px 12px;
-  border-radius: 22px;
+  max-width: min(680px, 92%);
+  padding: 18px 20px 16px;
+  border-radius: 28px;
   box-shadow: 0 18px 32px rgba(15, 23, 42, 0.08);
 }
 
@@ -214,7 +253,8 @@
 
 .messageContent {
   margin: 0;
-  line-height: 1.55;
+  line-height: 1.7;
+  font-size: 16px;
 }
 
 .messageTimeOwn,
@@ -239,6 +279,70 @@
   margin: 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.78);
+}
+
+.messageEdited {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.messageDeleted {
+  opacity: 0.72;
+  font-style: italic;
+}
+
+.messageTools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.messageTool,
+.messageToolDanger,
+.smallButton,
+.smallMutedButton {
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.messageTool,
+.smallButton {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+.messageToolDanger {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.smallMutedButton {
+  background: rgba(17, 24, 39, 0.08);
+  color: #344054;
+}
+
+.editBox {
+  display: grid;
+  gap: 10px;
+}
+
+.editInput {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 16px;
+  resize: vertical;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .messageTimeOwn {

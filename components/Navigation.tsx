@@ -20,8 +20,9 @@ export default function Navigation() {
       <div className={styles.actions}>
         {isAuthenticated ? (
           <>
-            <span className={styles.link}>{user?.username}</span>
+            <span className={styles.link}>{user?.displayName || user?.username}</span>
             <Link href="/dashboard/chat" className={styles.link}>Чаты</Link>
+            <Link href="/dashboard/profile" className={styles.link}>Профиль</Link>
             <button className={styles.danger} onClick={logout}>Выйти</button>
           </>
         ) : (
