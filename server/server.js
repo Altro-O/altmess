@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const http = require('http');
 const express = require('express');
 const next = require('next');
@@ -5,7 +7,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { randomUUID } = require('crypto');
-const { initDatabase } = require('./database');
 
 const lifecycle = process.env.npm_lifecycle_event;
 const dev = process.env.NODE_ENV !== 'production' && lifecycle !== 'start';
@@ -15,30 +16,48 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'altmess-dev-secret-change-me';
+const DATA_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'altmess-db.json');
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
 ];
+
+function ensureDataFile() {
+  const dataDir = path.dirname(DATA_FILE);
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(
+      DATA_FILE,
+      JSON.stringify({ users: [], messages: [], calls: [] }, null, 2),
+      'utf8',
+    );
+  }
+}
+
+function readDb() {
+  ensureDataFile();
+
+  try {
+    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  } catch {
+    return { users: [], messages: [], calls: [] };
+  }
+}
+
+function writeDb(data) {
+  ensureDataFile();
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
 
 function publicUser(user) {
   return {
     id: user.id,
     username: user.username,
     email: user.email,
-    createdAt: user.created_at,
-  };
-}
-
-function mapMessage(row) {
-  return {
-    id: row.id,
-    senderId: row.sender_id,
-    recipientId: row.recipient_id,
-    content: row.content,
-    status: row.status,
-    deliveredAt: row.delivered_at,
-    readAt: row.read_at,
-    createdAt: row.created_at,
+    createdAt: user.createdAt,
   };
 }
 
@@ -83,8 +102,19 @@ function normalizeQuery(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-app.prepare().then(async () => {
-  const db = await initDatabase();
+function getConversationMessages(db, firstUserId, secondUserId) {
+  return db.messages
+    .filter(
+      (message) =>
+        (message.senderId === firstUserId && message.recipientId === secondUserId) ||
+        (message.senderId === secondUserId && message.recipientId === firstUserId),
+    )
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt));
+}
+
+app.prepare().then(() => {
+  ensureDataFile();
+
   const expressApp = express();
   const server = http.createServer(expressApp);
   const io = new Server(server, {
@@ -124,7 +154,111 @@ app.prepare().then(async () => {
     sockets.forEach((socketId) => io.to(socketId).emit(event, payload));
   }
 
-  async function authMiddleware(req, res, nextMiddleware) {
+  function buildPresencePayload(currentUserId) {
+    const db = readDb();
+    return db.users
+      .filter((user) => user.id !== currentUserId)
+      .map((user) => ({ id: user.id, online: isUserOnline(user.id) }));
+  }
+
+  function broadcastPresence(userId) {
+    const db = readDb();
+    const payload = { id: userId, online: isUserOnline(userId) };
+    db.users.filter((user) => user.id !== userId).forEach((user) => emitToUser(user.id, 'presence:update', payload));
+  }
+
+  function buildContactList(currentUserId, searchQuery = '') {
+    const db = readDb();
+    const query = normalizeQuery(searchQuery);
+    const users = db.users.filter((user) => {
+      if (user.id === currentUserId) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return user.username.toLowerCase().includes(query) || user.email.toLowerCase().includes(query);
+    });
+
+    return users
+      .map((user) => {
+        const lastMessage = getConversationMessages(db, currentUserId, user.id).at(-1) || null;
+        const unreadCount = db.messages.filter(
+          (message) => message.senderId === user.id && message.recipientId === currentUserId && !message.readAt,
+        ).length;
+
+        return {
+          ...publicUser(user),
+          online: isUserOnline(user.id),
+          lastMessage,
+          unreadCount,
+        };
+      })
+      .sort((first, second) => {
+        const firstTime = first.lastMessage?.createdAt || first.createdAt || '';
+        const secondTime = second.lastMessage?.createdAt || second.createdAt || '';
+        return secondTime.localeCompare(firstTime);
+      });
+  }
+
+  function buildDialogs(currentUserId) {
+    return buildContactList(currentUserId).filter((contact) => contact.lastMessage || contact.unreadCount > 0);
+  }
+
+  function markConversationDelivered(userId) {
+    const db = readDb();
+    const now = new Date().toISOString();
+    let changed = false;
+
+    db.messages.forEach((message) => {
+      if (message.recipientId === userId && !message.deliveredAt) {
+        message.deliveredAt = now;
+        message.status = message.readAt ? 'read' : 'delivered';
+        changed = true;
+        emitToUser(message.senderId, 'message:status', {
+          id: message.id,
+          status: message.status,
+          deliveredAt: message.deliveredAt,
+          readAt: message.readAt,
+        });
+      }
+    });
+
+    if (changed) {
+      writeDb(db);
+    }
+  }
+
+  function markConversationRead(currentUserId, contactId) {
+    const db = readDb();
+    const now = new Date().toISOString();
+    const changedIds = [];
+
+    db.messages.forEach((message) => {
+      if (message.senderId === contactId && message.recipientId === currentUserId && !message.readAt) {
+        message.deliveredAt = message.deliveredAt || now;
+        message.readAt = now;
+        message.status = 'read';
+        changedIds.push(message.id);
+        emitToUser(message.senderId, 'message:status', {
+          id: message.id,
+          status: 'read',
+          deliveredAt: message.deliveredAt,
+          readAt: message.readAt,
+        });
+      }
+    });
+
+    if (changedIds.length > 0) {
+      writeDb(db);
+    }
+
+    return changedIds;
+  }
+
+  function authMiddleware(req, res, nextMiddleware) {
     const token = getBearerToken(req);
     if (!token) {
       res.status(401).json({ error: 'Требуется авторизация' });
@@ -137,7 +271,8 @@ app.prepare().then(async () => {
       return;
     }
 
-    const user = await db.get('SELECT * FROM users WHERE id = ?', payload.userId);
+    const db = readDb();
+    const user = db.users.find((entry) => entry.id === payload.userId);
     if (!user) {
       res.status(401).json({ error: 'Пользователь не найден' });
       return;
@@ -145,145 +280,6 @@ app.prepare().then(async () => {
 
     req.user = publicUser(user);
     nextMiddleware();
-  }
-
-  async function buildPresencePayload(currentUserId) {
-    const users = await db.all('SELECT id FROM users WHERE id <> ?', currentUserId);
-    return users.map((user) => ({
-      id: user.id,
-      online: isUserOnline(user.id),
-    }));
-  }
-
-  async function broadcastPresence(userId) {
-    const users = await db.all('SELECT id FROM users WHERE id <> ?', userId);
-    const payload = { id: userId, online: isUserOnline(userId) };
-    users.forEach((user) => emitToUser(user.id, 'presence:update', payload));
-  }
-
-  async function buildContactList(currentUserId, searchQuery = '') {
-    const query = normalizeQuery(searchQuery);
-    const users = query
-      ? await db.all(
-          `SELECT * FROM users
-           WHERE id <> ? AND (LOWER(username) LIKE ? OR LOWER(email) LIKE ?)
-           ORDER BY username ASC`,
-          currentUserId,
-          `%${query}%`,
-          `%${query}%`,
-        )
-      : await db.all('SELECT * FROM users WHERE id <> ? ORDER BY username ASC', currentUserId);
-
-    const contacts = [];
-
-    for (const user of users) {
-      const lastMessage = await db.get(
-        `SELECT * FROM messages
-         WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        currentUserId,
-        user.id,
-        user.id,
-        currentUserId,
-      );
-
-      const unreadRow = await db.get(
-        `SELECT COUNT(*) AS unreadCount
-         FROM messages
-         WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`,
-        user.id,
-        currentUserId,
-      );
-
-      contacts.push({
-        ...publicUser(user),
-        online: isUserOnline(user.id),
-        lastMessage: lastMessage ? mapMessage(lastMessage) : null,
-        unreadCount: unreadRow?.unreadCount || 0,
-      });
-    }
-
-    contacts.sort((first, second) => {
-      const firstTime = first.lastMessage?.createdAt || first.createdAt || '';
-      const secondTime = second.lastMessage?.createdAt || second.createdAt || '';
-      return secondTime.localeCompare(firstTime);
-    });
-
-    return contacts;
-  }
-
-  async function buildDialogs(currentUserId) {
-    const contacts = await buildContactList(currentUserId);
-    return contacts.filter((contact) => contact.lastMessage || contact.unreadCount > 0);
-  }
-
-  async function markConversationDelivered(userId) {
-    const now = new Date().toISOString();
-    const pending = await db.all(
-      `SELECT * FROM messages
-       WHERE recipient_id = ? AND delivered_at IS NULL`,
-      userId,
-    );
-
-    if (pending.length === 0) {
-      return;
-    }
-
-    await db.run(
-      `UPDATE messages
-       SET status = CASE WHEN read_at IS NULL THEN 'delivered' ELSE 'read' END,
-           delivered_at = COALESCE(delivered_at, ?)
-       WHERE recipient_id = ? AND delivered_at IS NULL`,
-      now,
-      userId,
-    );
-
-    pending.forEach((message) => {
-      emitToUser(message.sender_id, 'message:status', {
-        id: message.id,
-        status: 'delivered',
-        deliveredAt: now,
-        readAt: message.read_at,
-      });
-    });
-  }
-
-  async function markConversationRead(currentUserId, contactId) {
-    const now = new Date().toISOString();
-    const unread = await db.all(
-      `SELECT * FROM messages
-       WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`,
-      contactId,
-      currentUserId,
-    );
-
-    if (unread.length === 0) {
-      return [];
-    }
-
-    await db.run(
-      `UPDATE messages
-       SET status = 'read',
-           delivered_at = COALESCE(delivered_at, ?),
-           read_at = ?
-       WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`,
-      now,
-      now,
-      contactId,
-      currentUserId,
-    );
-
-    unread.forEach((message) => {
-      emitToUser(message.sender_id, 'message:status', {
-        id: message.id,
-        status: 'read',
-        deliveredAt: message.delivered_at || now,
-        readAt: now,
-      });
-    });
-
-    return unread.map((message) => message.id);
   }
 
   expressApp.use(express.json({ limit: '2mb' }));
@@ -308,18 +304,13 @@ app.prepare().then(async () => {
       return;
     }
 
-    const usernameTaken = await db.get(
-      'SELECT id FROM users WHERE LOWER(username) = ?',
-      trimmedUsername.toLowerCase(),
-    );
-    const emailTaken = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', trimmedEmail);
-
-    if (usernameTaken) {
+    const db = readDb();
+    if (db.users.some((user) => user.username.toLowerCase() === trimmedUsername.toLowerCase())) {
       res.status(409).json({ error: 'Имя пользователя уже занято' });
       return;
     }
 
-    if (emailTaken) {
+    if (db.users.some((user) => user.email.toLowerCase() === trimmedEmail)) {
       res.status(409).json({ error: 'Email уже используется' });
       return;
     }
@@ -332,34 +323,22 @@ app.prepare().then(async () => {
       createdAt: new Date().toISOString(),
     };
 
-    await db.run(
-      'INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
-      user.id,
-      user.username,
-      user.email,
-      user.passwordHash,
-      user.createdAt,
-    );
+    db.users.push(user);
+    writeDb(db);
 
-    res.status(201).json({ token: createToken(user), user: publicUser({ ...user, created_at: user.createdAt }), iceServers: getIceServers() });
+    res.status(201).json({ token: createToken(user), user: publicUser(user), iceServers: getIceServers() });
   });
 
   expressApp.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body || {};
-
-    if (!username || !password) {
-      res.status(400).json({ error: 'Имя пользователя и пароль обязательны' });
-      return;
-    }
-
     const loginValue = normalizeQuery(username);
-    const user = await db.get(
-      'SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?',
-      loginValue,
-      loginValue,
+    const db = readDb();
+    const user = db.users.find(
+      (entry) =>
+        entry.username.toLowerCase() === loginValue || entry.email.toLowerCase() === loginValue,
     );
 
-    if (!user || !(await bcrypt.compare(String(password), user.password_hash))) {
+    if (!user || !(await bcrypt.compare(String(password), user.passwordHash))) {
       res.status(401).json({ error: 'Неверный логин или пароль' });
       return;
     }
@@ -367,87 +346,56 @@ app.prepare().then(async () => {
     res.json({ token: createToken(user), user: publicUser(user), iceServers: getIceServers() });
   });
 
-  expressApp.get('/api/auth/me', authMiddleware, async (req, res) => {
+  expressApp.get('/api/auth/me', authMiddleware, (req, res) => {
     res.json({ user: req.user, iceServers: getIceServers() });
   });
 
-  expressApp.get('/api/users/search', authMiddleware, async (req, res) => {
-    const users = await buildContactList(req.user.id, req.query.q || '');
-    res.json({ users });
+  expressApp.get('/api/users/search', authMiddleware, (req, res) => {
+    res.json({ users: buildContactList(req.user.id, req.query.q || '') });
   });
 
-  expressApp.get('/api/users/contacts', authMiddleware, async (req, res) => {
-    const contacts = await buildContactList(req.user.id, req.query.q || '');
-    res.json({ contacts });
+  expressApp.get('/api/users/contacts', authMiddleware, (req, res) => {
+    res.json({ contacts: buildContactList(req.user.id, req.query.q || '') });
   });
 
-  expressApp.get('/api/dialogs', authMiddleware, async (req, res) => {
-    const dialogs = await buildDialogs(req.user.id);
-    res.json({ dialogs });
+  expressApp.get('/api/dialogs', authMiddleware, (req, res) => {
+    res.json({ dialogs: buildDialogs(req.user.id) });
   });
 
-  expressApp.get('/api/messages', authMiddleware, async (req, res) => {
+  expressApp.get('/api/messages', authMiddleware, (req, res) => {
     const contactId = String(req.query.contactId || '');
     if (!contactId) {
       res.status(400).json({ error: 'Не указан contactId' });
       return;
     }
 
-    const messages = await db.all(
-      `SELECT * FROM messages
-       WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
-       ORDER BY created_at ASC`,
-      req.user.id,
-      contactId,
-      contactId,
-      req.user.id,
-    );
-
-    await markConversationRead(req.user.id, contactId);
-    const refreshed = await db.all(
-      `SELECT * FROM messages
-       WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
-       ORDER BY created_at ASC`,
-      req.user.id,
-      contactId,
-      contactId,
-      req.user.id,
-    );
-
-    res.json({ messages: refreshed.map(mapMessage) });
+    markConversationRead(req.user.id, contactId);
+    const db = readDb();
+    res.json({ messages: getConversationMessages(db, req.user.id, contactId) });
   });
 
-  expressApp.post('/api/messages/read', authMiddleware, async (req, res) => {
+  expressApp.post('/api/messages/read', authMiddleware, (req, res) => {
     const contactId = String(req.body?.contactId || '');
     if (!contactId) {
       res.status(400).json({ error: 'Не указан contactId' });
       return;
     }
 
-    const messageIds = await markConversationRead(req.user.id, contactId);
-    res.json({ ok: true, messageIds });
+    res.json({ ok: true, messageIds: markConversationRead(req.user.id, contactId) });
   });
 
-  expressApp.get('/api/rtc/config', authMiddleware, async (req, res) => {
+  expressApp.get('/api/rtc/config', authMiddleware, (req, res) => {
     res.json({ iceServers: getIceServers() });
   });
 
   expressApp.all('*', (req, res) => handle(req, res));
 
-  io.use(async (socket, nextSocket) => {
+  io.use((socket, nextSocket) => {
     const token = socket.handshake.auth?.token;
-    if (!token) {
-      nextSocket(new Error('unauthorized'));
-      return;
-    }
+    const payload = token ? verifyToken(token) : null;
+    const db = readDb();
+    const user = payload ? db.users.find((entry) => entry.id === payload.userId) : null;
 
-    const payload = verifyToken(token);
-    if (!payload) {
-      nextSocket(new Error('unauthorized'));
-      return;
-    }
-
-    const user = await db.get('SELECT * FROM users WHERE id = ?', payload.userId);
     if (!user) {
       nextSocket(new Error('unauthorized'));
       return;
@@ -457,183 +405,152 @@ app.prepare().then(async () => {
     nextSocket();
   });
 
-  io.on('connection', async (socket) => {
+  io.on('connection', (socket) => {
     const currentUser = socket.data.user;
     setUserSocket(currentUser.id, socket.id);
-    socket.emit('presence:sync', await buildPresencePayload(currentUser.id));
-    await markConversationDelivered(currentUser.id);
-    await broadcastPresence(currentUser.id);
+    socket.emit('presence:sync', buildPresencePayload(currentUser.id));
+    markConversationDelivered(currentUser.id);
+    broadcastPresence(currentUser.id);
 
-    socket.on('message:send', async (payload, callback) => {
+    socket.on('message:send', (payload, callback) => {
       const content = String(payload?.content || '').trim();
       const recipientId = String(payload?.recipientId || '');
+      const db = readDb();
+      const recipient = db.users.find((user) => user.id === recipientId);
 
-      if (!content || !recipientId) {
-        callback?.({ ok: false, error: 'Сообщение или получатель не указаны' });
-        return;
-      }
-
-      const recipient = await db.get('SELECT * FROM users WHERE id = ?', recipientId);
-      if (!recipient) {
-        callback?.({ ok: false, error: 'Получатель не найден' });
+      if (!content || !recipient) {
+        callback?.({ ok: false, error: 'Получатель не найден или сообщение пустое' });
         return;
       }
 
       const now = new Date().toISOString();
-      const online = isUserOnline(recipientId);
       const message = {
         id: randomUUID(),
         senderId: currentUser.id,
         recipientId,
         content,
-        status: online ? 'delivered' : 'sent',
-        deliveredAt: online ? now : null,
+        status: isUserOnline(recipientId) ? 'delivered' : 'sent',
+        deliveredAt: isUserOnline(recipientId) ? now : null,
         readAt: null,
         createdAt: now,
       };
 
-      await db.run(
-        `INSERT INTO messages (
-          id, sender_id, recipient_id, content, status, delivered_at, read_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        message.id,
-        message.senderId,
-        message.recipientId,
-        message.content,
-        message.status,
-        message.deliveredAt,
-        message.readAt,
-        message.createdAt,
-      );
-
+      db.messages.push(message);
+      writeDb(db);
       emitToUser(recipientId, 'message:new', message);
       emitToUser(currentUser.id, 'message:new', message);
       callback?.({ ok: true, message });
     });
 
-    socket.on('conversation:read', async (payload) => {
-      const contactId = String(payload?.contactId || '');
-      if (!contactId) {
-        return;
+    socket.on('conversation:read', ({ contactId }) => {
+      if (contactId) {
+        markConversationRead(currentUser.id, String(contactId));
       }
-
-      await markConversationRead(currentUser.id, contactId);
     });
 
-    socket.on('call:start', async (payload, callback) => {
+    socket.on('call:start', (payload, callback) => {
       const toUserId = String(payload?.toUserId || '');
       const mode = payload?.mode === 'audio' ? 'audio' : 'video';
+      const db = readDb();
+      const recipient = db.users.find((user) => user.id === toUserId);
 
-      if (!toUserId || toUserId === currentUser.id) {
+      if (!recipient || toUserId === currentUser.id) {
         callback?.({ ok: false, error: 'Неверный получатель звонка' });
         return;
       }
 
-      const recipient = await db.get('SELECT * FROM users WHERE id = ?', toUserId);
-      if (!recipient) {
-        callback?.({ ok: false, error: 'Пользователь не найден' });
-        return;
-      }
-
-      const callId = randomUUID();
-      const startedAt = new Date().toISOString();
       const call = {
-        id: callId,
+        id: randomUUID(),
         callerId: currentUser.id,
         recipientId: toUserId,
         mode,
         status: 'ringing',
-        startedAt,
+        startedAt: new Date().toISOString(),
+        endedAt: null,
       };
 
-      activeCalls.set(callId, call);
-      await db.run(
-        'INSERT INTO calls (id, caller_id, recipient_id, mode, status, started_at) VALUES (?, ?, ?, ?, ?, ?)',
-        call.id,
-        call.callerId,
-        call.recipientId,
-        call.mode,
-        call.status,
-        call.startedAt,
-      );
-
+      db.calls.push(call);
+      writeDb(db);
+      activeCalls.set(call.id, call);
       emitToUser(toUserId, 'call:incoming', {
-        callId,
+        callId: call.id,
         mode,
         fromUser: currentUser,
       });
-      callback?.({ ok: true, callId });
+      callback?.({ ok: true, callId: call.id });
     });
 
-    socket.on('call:accept', async (payload) => {
-      const callId = String(payload?.callId || '');
-      const call = activeCalls.get(callId);
-      if (!call || call.recipientId !== currentUser.id) {
+    socket.on('call:accept', ({ callId }) => {
+      const db = readDb();
+      const call = activeCalls.get(String(callId));
+      const storedCall = db.calls.find((entry) => entry.id === callId);
+      if (!call || !storedCall) {
         return;
       }
 
       call.status = 'active';
-      await db.run('UPDATE calls SET status = ? WHERE id = ?', 'active', callId);
+      storedCall.status = 'active';
+      writeDb(db);
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:accepted', { callId, byUserId: currentUser.id });
     });
 
-    socket.on('call:reject', async (payload) => {
-      const callId = String(payload?.callId || '');
-      const call = activeCalls.get(callId);
-      if (!call) {
+    socket.on('call:reject', ({ callId }) => {
+      const db = readDb();
+      const call = activeCalls.get(String(callId));
+      const storedCall = db.calls.find((entry) => entry.id === callId);
+      if (!call || !storedCall) {
         return;
       }
 
+      call.status = 'rejected';
+      storedCall.status = 'rejected';
+      storedCall.endedAt = new Date().toISOString();
+      writeDb(db);
       activeCalls.delete(callId);
-      await db.run('UPDATE calls SET status = ?, ended_at = ? WHERE id = ?', 'rejected', new Date().toISOString(), callId);
       emitToUser(call.callerId, 'call:rejected', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:rejected', { callId, byUserId: currentUser.id });
     });
 
-    socket.on('call:end', async (payload) => {
-      const callId = String(payload?.callId || '');
-      const call = activeCalls.get(callId);
-      if (!call) {
+    socket.on('call:end', ({ callId }) => {
+      const db = readDb();
+      const call = activeCalls.get(String(callId));
+      const storedCall = db.calls.find((entry) => entry.id === callId);
+      if (!call || !storedCall) {
         return;
       }
 
+      call.status = 'ended';
+      storedCall.status = 'ended';
+      storedCall.endedAt = new Date().toISOString();
+      writeDb(db);
       activeCalls.delete(callId);
-      await db.run('UPDATE calls SET status = ?, ended_at = ? WHERE id = ?', 'ended', new Date().toISOString(), callId);
       emitToUser(call.callerId, 'call:ended', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:ended', { callId, byUserId: currentUser.id });
     });
 
-    socket.on('webrtc:offer', (payload) => {
-      const call = activeCalls.get(String(payload?.callId || ''));
+    socket.on('webrtc:offer', ({ callId, offer }) => {
+      const call = activeCalls.get(String(callId));
       if (!call) {
         return;
       }
 
       const targetUserId = currentUser.id === call.callerId ? call.recipientId : call.callerId;
-      emitToUser(targetUserId, 'webrtc:offer', {
-        callId: call.id,
-        offer: payload.offer,
-        fromUserId: currentUser.id,
-      });
+      emitToUser(targetUserId, 'webrtc:offer', { callId: call.id, offer, fromUserId: currentUser.id });
     });
 
-    socket.on('webrtc:answer', (payload) => {
-      const call = activeCalls.get(String(payload?.callId || ''));
+    socket.on('webrtc:answer', ({ callId, answer }) => {
+      const call = activeCalls.get(String(callId));
       if (!call) {
         return;
       }
 
       const targetUserId = currentUser.id === call.callerId ? call.recipientId : call.callerId;
-      emitToUser(targetUserId, 'webrtc:answer', {
-        callId: call.id,
-        answer: payload.answer,
-        fromUserId: currentUser.id,
-      });
+      emitToUser(targetUserId, 'webrtc:answer', { callId: call.id, answer, fromUserId: currentUser.id });
     });
 
-    socket.on('webrtc:ice-candidate', (payload) => {
-      const call = activeCalls.get(String(payload?.callId || ''));
+    socket.on('webrtc:ice-candidate', ({ callId, candidate }) => {
+      const call = activeCalls.get(String(callId));
       if (!call) {
         return;
       }
@@ -641,14 +558,14 @@ app.prepare().then(async () => {
       const targetUserId = currentUser.id === call.callerId ? call.recipientId : call.callerId;
       emitToUser(targetUserId, 'webrtc:ice-candidate', {
         callId: call.id,
-        candidate: payload.candidate,
+        candidate,
         fromUserId: currentUser.id,
       });
     });
 
-    socket.on('disconnect', async () => {
+    socket.on('disconnect', () => {
       removeUserSocket(currentUser.id, socket.id);
-      await broadcastPresence(currentUser.id);
+      broadcastPresence(currentUser.id);
     });
   });
 
