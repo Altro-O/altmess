@@ -245,7 +245,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       setVideoUnavailable(false);
     } catch (error) {
       if (call.mode !== 'video') {
-        throw error;
+        const nextError = error instanceof Error ? error : new Error('Не удалось получить доступ к микрофону');
+        throw nextError;
       }
 
       stream = await navigator.mediaDevices.getUserMedia({
@@ -383,6 +384,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       socket.emit('call:accept', { callId: call.callId });
     } catch (error) {
       console.error('Failed to access media devices:', error);
+      alert(error instanceof Error ? error.message : 'Нужен доступ к микрофону и камере для звонка');
       setPhase('error');
     }
   };

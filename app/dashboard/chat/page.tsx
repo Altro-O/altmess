@@ -781,8 +781,56 @@ export default function ChatPage() {
     }
   };
 
-  const startCall = (mode: 'audio' | 'video') => {
+  const requestCallMediaAccess = async (mode: 'audio' | 'video') => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Браузер не поддерживает доступ к микрофону/камере');
+    }
+
+    let stream: MediaStream | null = null;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+        video: mode === 'video',
+      });
+    } catch (error) {
+      if (mode === 'video') {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          },
+          video: false,
+        });
+      } else {
+        throw error;
+      }
+    }
+
+    const hasAudioTrack = stream.getAudioTracks().length > 0;
+    stream.getTracks().forEach((track) => track.stop());
+
+    if (!hasAudioTrack) {
+      throw new Error('Не удалось получить доступ к микрофону');
+    }
+  };
+
+  const startCall = async (mode: 'audio' | 'video') => {
     if (!socketRef.current || !activeContact) {
+      return;
+    }
+
+    try {
+      await requestCallMediaAccess(mode);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Нужен доступ к микрофону и камере для звонка');
       return;
     }
 
