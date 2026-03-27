@@ -1017,18 +1017,24 @@ export default function ChatPage() {
                   </div>
                 ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
-                  <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                  <div className={styles.composerInputWrap}>
+                    <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                    <div className={styles.composerInlineActions}>
+                      <button type="button" className={`${styles.inlineIconButton} ${showEmojiPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
+                      </button>
+                      {!inputText.trim() || isRecordingVoice ? (
+                        <button type="button" className={`${styles.inlineIconButton} ${isRecordingVoice ? styles.inlineIconButtonRecord : ''}`} onClick={() => startVoiceRecording()} title={isRecordingVoice ? `Остановить запись ${voiceSeconds}s` : 'Записать голосовое'}>
+                          <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z" fill="currentColor"/></svg>
+                          {isRecordingVoice ? <span className={styles.inlineIconText}>{voiceSeconds}s</span> : null}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                   <label className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'}>
                     <input type="file" className={styles.hiddenFileInput} onChange={sendFile} />
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
                   </label>
-                  <button type="button" className={styles.iconButton} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
-                  </button>
-                  <button type="button" className={`${styles.iconButton} ${isRecordingVoice ? styles.iconButtonActive : ''}`} onClick={() => startVoiceRecording()} title={isRecordingVoice ? `Остановить запись ${voiceSeconds}s` : 'Записать голосовое'}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z" fill="currentColor"/></svg>
-                    {isRecordingVoice ? <span className={styles.iconButtonText}>{voiceSeconds}s</span> : null}
-                  </button>
                   <button type="submit" className={styles.composerButton}>Отправить</button>
                 </form>
               </div>

@@ -138,6 +138,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
       remoteAudioRef.current.srcObject = remoteStream;
       remoteAudioRef.current.muted = false;
       remoteAudioRef.current.volume = 1;
+      remoteAudioRef.current.autoplay = true;
     }
 
     remoteStreamRef.current = remoteStream;
@@ -316,6 +317,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
     const peerConnection = new RTCPeerConnection({ iceServers });
     const incomingStream = new MediaStream();
+    remoteStreamRef.current = incomingStream;
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -327,17 +329,19 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     };
 
     peerConnection.ontrack = (event) => {
+      const targetStream = remoteStreamRef.current || incomingStream;
+
       if (event.streams[0]) {
         event.streams[0].getTracks().forEach((track) => {
-          if (!incomingStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
-            incomingStream.addTrack(track);
+          if (!targetStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
+            targetStream.addTrack(track);
           }
         });
-      } else if (event.track && !incomingStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id)) {
-        incomingStream.addTrack(event.track);
+      } else if (event.track && !targetStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id)) {
+        targetStream.addTrack(event.track);
       }
 
-      setRemoteStream(incomingStream);
+      setRemoteStream(targetStream);
       setPhase('active');
       ensureRemotePlayback();
     };
@@ -347,8 +351,19 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
         setPhase('active');
       }
 
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
         setPhase('error');
+        onCloseRef.current();
+      }
+
+      if (peerConnection.connectionState === 'disconnected') {
+        window.setTimeout(() => {
+          if (peerConnection.connectionState === 'disconnected') {
+            setPhase('ended');
+            closeResources();
+            onCloseRef.current();
+          }
+        }, 1800);
       }
     };
 
@@ -421,20 +436,16 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     return 'Звонок завершен';
   }, [call.mode, phase]);
 
-  if (minimized) {
-    return (
-      <>
-        <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
+  return (
+    <>
+      <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
+      {minimized ? (
         <button type="button" className={styles.minimizedCall} onClick={onRestore}>
           <span className={styles.minimizedTitle}>{call.peerName}</span>
           <span className={styles.minimizedText}>{statusText}</span>
         </button>
-      </>
-    );
-  }
-
-  return (
-    <div className={styles.overlay} style={{ display: 'block' }}>
+      ) : null}
+      <div className={`${styles.overlay} ${minimized ? styles.overlayHidden : ''}`}>
       <div className={styles.backdrop} />
 
       {phase === 'incoming' ? (
@@ -467,9 +478,6 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
               <div className={styles.audioPulse}>{call.peerName.slice(0, 1).toUpperCase()}</div>
             </div>
           )}
-
-          <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
-
           <div className={styles.localCard}>
             {call.mode === 'video' ? (
               localStream?.getVideoTracks().length ? (
@@ -501,6 +509,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

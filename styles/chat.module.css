@@ -642,18 +642,33 @@
 
 .composerForm {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
+}
+
+.composerInputWrap {
+  position: relative;
+  min-width: 0;
 }
 
 .composerInput {
   width: 100%;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 16px 112px 16px 18px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 18px;
   outline: none;
   background: rgba(255, 255, 255, 0.92);
+}
+
+.composerInlineActions {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .composerInput:focus {
@@ -693,6 +708,36 @@
 .iconButtonActive {
   background: rgba(229, 72, 77, 0.1);
   color: #b42318;
+}
+
+.inlineIconButton {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.06);
+  color: rgba(17, 24, 39, 0.72);
+}
+
+.inlineIconButtonActive {
+  background: rgba(31, 111, 255, 0.14);
+  color: #1f6fff;
+}
+
+.inlineIconButtonRecord {
+  width: auto;
+  padding: 0 10px;
+  background: rgba(229, 72, 77, 0.12);
+  color: #b42318;
+}
+
+.inlineIconText {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .iconSvg {
@@ -875,12 +920,16 @@
   }
 
   .composerForm {
-    grid-template-columns: minmax(0, 1fr) 52px 52px auto;
+    grid-template-columns: minmax(0, 1fr) 52px auto;
   }
 
   .composerButton {
     min-width: 112px;
     padding: 0 16px;
+  }
+
+  .composerInput {
+    padding-right: 100px;
   }
 
   .messageArea {
