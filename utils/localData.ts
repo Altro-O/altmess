@@ -1,4 +1,4 @@
-import { generatePrivateKey, hashPassword } from '@/utils/crypto';
+import { generatePrivateKey, hashPassword } from './crypto';
 
 export interface StoredUser {
   id: string;

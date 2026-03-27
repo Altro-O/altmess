@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import styles from '@/styles/navigation.module.css';
-import { useAuth } from '@/components/AuthProvider';
+import styles from '../styles/navigation.module.css';
+import { useAuth } from './AuthProvider';
 
 export default function Navigation() {
   const { isAuthenticated, user, logout } = useAuth();

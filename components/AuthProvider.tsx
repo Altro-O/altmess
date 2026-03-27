@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiFetch, clearSession, getStoredToken, storeSession, type AuthUser } from '@/utils/api';
+import { apiFetch, clearSession, getStoredToken, storeSession, type AuthUser } from '../utils/api';
 
 interface AuthContextValue {
   isAuthenticated: boolean;

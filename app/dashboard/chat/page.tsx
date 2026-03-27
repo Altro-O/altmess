@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
-import { useAuth } from '@/components/AuthProvider';
-import VideoCall, { type CallSession } from '@/components/VideoCall';
-import { apiFetch, type ChatMessage, type Contact } from '@/utils/api';
-import styles from '@/styles/chat.module.css';
+import { useAuth } from '../../../components/AuthProvider';
+import VideoCall, { type CallSession } from '../../../components/VideoCall';
+import { apiFetch, type ChatMessage, type Contact } from '../../../utils/api';
+import styles from '../../../styles/chat.module.css';
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);

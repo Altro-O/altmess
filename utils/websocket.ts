@@ -1,5 +1,5 @@
 // Клиентский WebSocket для чата
-import API_CONFIG from '@/config/api.config';
+import API_CONFIG from '../config/api.config';
 
 class ChatWebSocket {
   private socket: WebSocket | null = null;

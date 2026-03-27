@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import styles from '@/styles/auth.module.css';
-import { useAuth } from '@/components/AuthProvider';
-import { apiFetch, type AuthUser } from '@/utils/api';
+import styles from '../styles/auth.module.css';
+import { useAuth } from '../components/AuthProvider';
+import { apiFetch, type AuthUser } from '../utils/api';
 
 export default function LoginPage() {
   const { login } = useAuth();

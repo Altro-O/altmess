@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
-import styles from '@/styles/videoCall.module.css';
+import styles from '../styles/videoCall.module.css';
 
 export interface CallSession {
   callId: string;
