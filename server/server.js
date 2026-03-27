@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const http = require('http');
 const express = require('express');
 const next = require('next');
@@ -7,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { randomUUID } = require('crypto');
+const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
 
 const lifecycle = process.env.npm_lifecycle_event;
 const dev = process.env.NODE_ENV !== 'production' && lifecycle !== 'start';
@@ -16,40 +15,21 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'altmess-dev-secret-change-me';
-const DATA_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'altmess-db.json');
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
 ];
 
-function ensureDataFile() {
-  const dataDir = path.dirname(DATA_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify({ users: [], messages: [], calls: [] }, null, 2),
-      'utf8',
-    );
-  }
-}
-
 function readDb() {
-  ensureDataFile();
-
-  try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return { users: [], messages: [], calls: [] };
-  }
+  return getState();
 }
 
-function writeDb(data) {
-  ensureDataFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+async function writeDb(data) {
+  try {
+    await saveState(data);
+  } catch (error) {
+    console.error('Failed to persist state:', error);
+  }
 }
 
 function publicUser(user) {
@@ -128,8 +108,8 @@ function sanitizeMessage(message) {
   };
 }
 
-app.prepare().then(() => {
-  ensureDataFile();
+app.prepare().then(async () => {
+  await loadState();
 
   const expressApp = express();
   const server = http.createServer(expressApp);
@@ -678,6 +658,10 @@ app.prepare().then(() => {
     .listen(port, hostname, () => {
       if (JWT_SECRET === 'altmess-dev-secret-change-me') {
         console.warn('Using default JWT secret. Set JWT_SECRET in production.');
+      }
+
+      if (DATABASE_URL) {
+        console.log('Using external Postgres persistence');
       }
 
       console.log(`> Ready on http://${hostname}:${port}`);
