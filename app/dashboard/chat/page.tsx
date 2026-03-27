@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
@@ -62,6 +62,7 @@ function getAvatarLabel(contact: Contact) {
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated, isLoading, token, user } = useAuth();
   const [sidebarItems, setSidebarItems] = useState<Contact[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -104,6 +105,8 @@ export default function ChatPage() {
     });
   }, [searchQuery, token]);
 
+  const requestedContactId = searchParams?.get('contactId') || null;
+
   useEffect(() => {
     activeContactRef.current = activeContactId;
   }, [activeContactId]);
@@ -120,6 +123,9 @@ export default function ChatPage() {
     }
 
     let alive = true;
+    const syncVisibility = () => {
+      socketRef.current?.emit('client:visibility', { visible: document.visibilityState === 'visible' });
+    };
 
     const bootstrap = async () => {
       try {
@@ -132,6 +138,11 @@ export default function ChatPage() {
 
         const socket = io({ auth: { token } });
         socketRef.current = socket;
+
+        socket.on('connect', syncVisibility);
+        document.addEventListener('visibilitychange', syncVisibility);
+        window.addEventListener('focus', syncVisibility);
+        window.addEventListener('blur', syncVisibility);
 
         socket.on('connect_error', () => {
           setPageError('Не удалось подключиться к realtime-серверу');
@@ -220,6 +231,9 @@ export default function ChatPage() {
 
     return () => {
       alive = false;
+      document.removeEventListener('visibilitychange', syncVisibility);
+      window.removeEventListener('focus', syncVisibility);
+      window.removeEventListener('blur', syncVisibility);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
@@ -245,6 +259,17 @@ export default function ChatPage() {
       })
       .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'));
   }, [activeContactId, token]);
+
+  useEffect(() => {
+    if (!requestedContactId || !sidebarItems.some((contact) => contact.id === requestedContactId)) {
+      return;
+    }
+
+    setActiveContactId(requestedContactId);
+    if (isMobileLayout) {
+      setShowMobileChat(true);
+    }
+  }, [isMobileLayout, requestedContactId, sidebarItems]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

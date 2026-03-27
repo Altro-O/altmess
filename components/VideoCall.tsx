@@ -30,6 +30,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
@@ -61,6 +62,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
     remoteStreamRef.current = null;
     setRemoteStream(null);
+    pendingIceCandidatesRef.current = [];
   };
 
   useEffect(() => {
@@ -95,6 +97,16 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       onClose();
     };
 
+    const handleMissed = ({ callId }: { callId: string }) => {
+      if (callId !== call.callId) {
+        return;
+      }
+
+      setPhase('missed');
+      closeResources();
+      onClose();
+    };
+
     const handleOffer = async ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
       if (callId !== call.callId || call.initiator) {
         return;
@@ -104,6 +116,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
         const stream = localStreamRef.current || (await createLocalMedia());
         const peerConnection = createPeerConnection(stream);
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        while (pendingIceCandidatesRef.current.length > 0) {
+          const queuedCandidate = pendingIceCandidatesRef.current.shift();
+          if (queuedCandidate) {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+          }
+        }
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
         socket.emit('webrtc:answer', { callId: call.callId, answer });
@@ -120,6 +138,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      while (pendingIceCandidatesRef.current.length > 0) {
+        const queuedCandidate = pendingIceCandidatesRef.current.shift();
+        if (queuedCandidate) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(queuedCandidate));
+        }
+      }
       setPhase('active');
     };
 
@@ -129,6 +153,11 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       try {
+        if (!peerConnectionRef.current.remoteDescription) {
+          pendingIceCandidatesRef.current.push(candidate);
+          return;
+        }
+
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (error) {
         console.error('Failed to add ICE candidate:', error);
@@ -138,6 +167,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     socket.on('call:accepted', handleAccepted);
     socket.on('call:rejected', handleRejected);
     socket.on('call:ended', handleEnded);
+    socket.on('call:missed', handleMissed);
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice-candidate', handleIceCandidate);
@@ -146,6 +176,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       socket.off('call:accepted', handleAccepted);
       socket.off('call:rejected', handleRejected);
       socket.off('call:ended', handleEnded);
+      socket.off('call:missed', handleMissed);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice-candidate', handleIceCandidate);
@@ -185,6 +216,22 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       event.streams[0]?.getTracks().forEach((track) => incomingStream.addTrack(track));
       setRemoteStream(incomingStream);
       setPhase('active');
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === 'connected') {
+        setPhase('active');
+      }
+
+      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+        setPhase('error');
+      }
+    };
+
+    peerConnection.oniceconnectionstatechange = () => {
+      if (peerConnection.iceConnectionState === 'failed') {
+        setPhase('error');
+      }
     };
 
     stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
@@ -245,6 +292,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     if (phase === 'active') return call.mode === 'video' ? 'Видеозвонок активен' : 'Голосовой звонок активен';
     if (phase === 'rejected') return 'Звонок отклонен';
     if (phase === 'error') return 'Ошибка подключения';
+    if (phase === 'missed') return 'Звонок пропущен';
     return 'Звонок завершен';
   }, [call.mode, phase]);
 

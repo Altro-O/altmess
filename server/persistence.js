@@ -5,7 +5,7 @@ const { Pool } = require('pg');
 const DATA_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'altmess-db.json');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 
-let state = { users: [], messages: [], calls: [] };
+let state = { users: [], messages: [], calls: [], pushSubscriptions: [] };
 let pool = null;
 
 function ensureFile() {
@@ -24,6 +24,7 @@ function normalizeState(input) {
     users: Array.isArray(input?.users) ? input.users : [],
     messages: Array.isArray(input?.messages) ? input.messages : [],
     calls: Array.isArray(input?.calls) ? input.calls : [],
+    pushSubscriptions: Array.isArray(input?.pushSubscriptions) ? input.pushSubscriptions : [],
   };
 }
 
@@ -33,7 +34,7 @@ function readFileState() {
   try {
     return normalizeState(JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')));
   } catch {
-    return { users: [], messages: [], calls: [] };
+    return { users: [], messages: [], calls: [], pushSubscriptions: [] };
   }
 }
 

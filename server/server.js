@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { randomUUID } = require('crypto');
+const webpush = require('web-push');
 const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
 
 const lifecycle = process.env.npm_lifecycle_event;
@@ -15,10 +16,18 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'altmess-dev-secret-change-me';
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const RING_TIMEOUT_MS = 30000;
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
 ];
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
 
 function readDb() {
   return getState();
@@ -65,22 +74,39 @@ function getBearerToken(req) {
 }
 
 function getIceServers() {
-  const turnUrl = process.env.TURN_URL;
+  const turnUrls = [
+    ...String(process.env.TURN_URLS || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+    ...String(process.env.TURN_URL || '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ];
   const turnUsername = process.env.TURN_USERNAME;
   const turnCredential = process.env.TURN_CREDENTIAL;
 
-  if (!turnUrl || !turnUsername || !turnCredential) {
+  if (turnUrls.length === 0 || !turnUsername || !turnCredential) {
     return DEFAULT_ICE_SERVERS;
   }
 
   return [
     ...DEFAULT_ICE_SERVERS,
     {
-      urls: [turnUrl],
+      urls: turnUrls,
       username: turnUsername,
       credential: turnCredential,
     },
   ];
+}
+
+function supportsPushNotifications() {
+  return Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+}
+
+function getCallPeerId(call, userId) {
+  return call.callerId === userId ? call.recipientId : call.callerId;
 }
 
 function normalizeQuery(value) {
@@ -118,6 +144,7 @@ app.prepare().then(async () => {
   });
   const activeUsers = new Map();
   const activeCalls = new Map();
+  const ringTimeouts = new Map();
 
   function isUserOnline(userId) {
     return activeUsers.has(userId);
@@ -148,6 +175,108 @@ app.prepare().then(async () => {
     }
 
     sockets.forEach((socketId) => io.to(socketId).emit(event, payload));
+  }
+
+  function getUserSockets(userId) {
+    return [...(activeUsers.get(userId) || [])]
+      .map((socketId) => io.sockets.sockets.get(socketId))
+      .filter(Boolean);
+  }
+
+  function hasVisibleSocket(userId) {
+    return getUserSockets(userId).some((socket) => socket.data.isVisible !== false);
+  }
+
+  async function removePushSubscriptionByEndpoint(endpoint) {
+    const db = readDb();
+    const nextSubscriptions = db.pushSubscriptions.filter((entry) => entry.endpoint !== endpoint);
+    if (nextSubscriptions.length === db.pushSubscriptions.length) {
+      return;
+    }
+
+    db.pushSubscriptions = nextSubscriptions;
+    await writeDb(db);
+  }
+
+  async function sendPushToUser(userId, payload) {
+    if (!supportsPushNotifications()) {
+      return;
+    }
+
+    const db = readDb();
+    const subscriptions = db.pushSubscriptions.filter((entry) => entry.userId === userId);
+
+    await Promise.all(
+      subscriptions.map(async (entry) => {
+        try {
+          await webpush.sendNotification(entry.subscription, JSON.stringify(payload));
+        } catch (error) {
+          if (error?.statusCode === 404 || error?.statusCode === 410) {
+            await removePushSubscriptionByEndpoint(entry.endpoint);
+            return;
+          }
+
+          console.error('Failed to send push notification:', error);
+        }
+      }),
+    );
+  }
+
+  function clearRingTimeout(callId) {
+    const timeout = ringTimeouts.get(callId);
+    if (timeout) {
+      clearTimeout(timeout);
+      ringTimeouts.delete(callId);
+    }
+  }
+
+  function emitIncomingCall(call, fromUser) {
+    emitToUser(call.recipientId, 'call:incoming', {
+      callId: call.id,
+      mode: call.mode,
+      fromUser,
+    });
+  }
+
+  function scheduleRingTimeout(callId) {
+    clearRingTimeout(callId);
+    const timeout = setTimeout(() => {
+      const db = readDb();
+      const call = activeCalls.get(callId);
+      const storedCall = db.calls.find((entry) => entry.id === callId);
+
+      if (!call || !storedCall || storedCall.status !== 'ringing') {
+        return;
+      }
+
+      const endedAt = new Date().toISOString();
+      call.status = 'missed';
+      call.endedAt = endedAt;
+      storedCall.status = 'missed';
+      storedCall.endedAt = endedAt;
+      writeDb(db);
+      activeCalls.delete(callId);
+      ringTimeouts.delete(callId);
+      emitToUser(call.callerId, 'call:missed', { callId, byUserId: call.recipientId });
+      emitToUser(call.recipientId, 'call:missed', { callId, byUserId: call.recipientId });
+    }, RING_TIMEOUT_MS);
+
+    ringTimeouts.set(callId, timeout);
+  }
+
+  function syncPendingCall(userId) {
+    const db = readDb();
+    const pendingCall = [...activeCalls.values()].find((call) => call.recipientId === userId && call.status === 'ringing');
+    if (!pendingCall) {
+      return;
+    }
+
+    const fromUser = db.users.find((entry) => entry.id === pendingCall.callerId);
+    if (!fromUser) {
+      return;
+    }
+
+    emitIncomingCall(pendingCall, publicUser(fromUser));
   }
 
   function buildPresencePayload(currentUserId) {
@@ -415,6 +544,63 @@ app.prepare().then(async () => {
     res.json({ iceServers: getIceServers() });
   });
 
+  expressApp.get('/api/notifications/config', authMiddleware, (req, res) => {
+    res.json({
+      supported: supportsPushNotifications(),
+      vapidPublicKey: VAPID_PUBLIC_KEY,
+    });
+  });
+
+  expressApp.post('/api/notifications/subscribe', authMiddleware, async (req, res) => {
+    if (!supportsPushNotifications()) {
+      res.status(503).json({ error: 'Push-уведомления еще не настроены на сервере' });
+      return;
+    }
+
+    const subscription = req.body?.subscription;
+    const endpoint = String(subscription?.endpoint || '');
+    const p256dh = String(subscription?.keys?.p256dh || '');
+    const auth = String(subscription?.keys?.auth || '');
+
+    if (!endpoint || !p256dh || !auth) {
+      res.status(400).json({ error: 'Некорректная push-подписка' });
+      return;
+    }
+
+    const db = readDb();
+    const now = new Date().toISOString();
+    const existing = db.pushSubscriptions.find((entry) => entry.endpoint === endpoint);
+
+    if (existing) {
+      existing.userId = req.user.id;
+      existing.subscription = subscription;
+      existing.updatedAt = now;
+    } else {
+      db.pushSubscriptions.push({
+        id: randomUUID(),
+        userId: req.user.id,
+        endpoint,
+        subscription,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await writeDb(db);
+    res.json({ ok: true });
+  });
+
+  expressApp.delete('/api/notifications/subscribe', authMiddleware, async (req, res) => {
+    const endpoint = String(req.body?.endpoint || '');
+    if (!endpoint) {
+      res.status(400).json({ error: 'Не указан endpoint подписки' });
+      return;
+    }
+
+    await removePushSubscriptionByEndpoint(endpoint);
+    res.json({ ok: true });
+  });
+
   expressApp.all('*', (req, res) => handle(req, res));
 
   io.use((socket, nextSocket) => {
@@ -434,12 +620,18 @@ app.prepare().then(async () => {
 
   io.on('connection', (socket) => {
     const currentUser = socket.data.user;
+    socket.data.isVisible = true;
     setUserSocket(currentUser.id, socket.id);
     socket.emit('presence:sync', buildPresencePayload(currentUser.id));
     markConversationDelivered(currentUser.id);
     broadcastPresence(currentUser.id);
+    syncPendingCall(currentUser.id);
 
-    socket.on('message:send', (payload, callback) => {
+    socket.on('client:visibility', ({ visible }) => {
+      socket.data.isVisible = visible !== false;
+    });
+
+    socket.on('message:send', async (payload, callback) => {
       const content = String(payload?.content || '').trim();
       const recipientId = String(payload?.recipientId || '');
       const db = readDb();
@@ -465,9 +657,23 @@ app.prepare().then(async () => {
       };
 
       db.messages.push(message);
-      writeDb(db);
+      await writeDb(db);
       emitToUser(recipientId, 'message:new', message);
       emitToUser(currentUser.id, 'message:new', message);
+
+      if (!hasVisibleSocket(recipientId)) {
+        await sendPushToUser(recipientId, {
+          title: currentUser.displayName || currentUser.username,
+          body: content.length > 120 ? `${content.slice(0, 117)}...` : content,
+          tag: `message-${currentUser.id}`,
+          url: `/dashboard/chat?contactId=${currentUser.id}`,
+          data: {
+            type: 'message',
+            contactId: currentUser.id,
+          },
+        });
+      }
+
       callback?.({ ok: true, message });
     });
 
@@ -521,14 +727,24 @@ app.prepare().then(async () => {
       }
     });
 
-    socket.on('call:start', (payload, callback) => {
+    socket.on('call:start', async (payload, callback) => {
       const toUserId = String(payload?.toUserId || '');
       const mode = payload?.mode === 'audio' ? 'audio' : 'video';
       const db = readDb();
       const recipient = db.users.find((user) => user.id === toUserId);
+      const activePeerCall = [...activeCalls.values()].find(
+        (call) =>
+          (call.callerId === currentUser.id || call.recipientId === currentUser.id || call.callerId === toUserId || call.recipientId === toUserId) &&
+          ['ringing', 'active'].includes(call.status),
+      );
 
       if (!recipient || toUserId === currentUser.id) {
         callback?.({ ok: false, error: 'Неверный получатель звонка' });
+        return;
+      }
+
+      if (activePeerCall) {
+        callback?.({ ok: false, error: 'Один из участников уже находится в звонке' });
         return;
       }
 
@@ -543,17 +759,31 @@ app.prepare().then(async () => {
       };
 
       db.calls.push(call);
-      writeDb(db);
+      await writeDb(db);
       activeCalls.set(call.id, call);
-      emitToUser(toUserId, 'call:incoming', {
-        callId: call.id,
-        mode,
-        fromUser: currentUser,
-      });
+      emitIncomingCall(call, currentUser);
+      scheduleRingTimeout(call.id);
+
+      if (!hasVisibleSocket(toUserId)) {
+        await sendPushToUser(toUserId, {
+          title: mode === 'video' ? 'Видеозвонок' : 'Аудиозвонок',
+          body: `${currentUser.displayName || currentUser.username} звонит вам`,
+          tag: `call-${call.id}`,
+          requireInteraction: true,
+          url: `/dashboard/chat?contactId=${currentUser.id}`,
+          data: {
+            type: 'call',
+            callId: call.id,
+            contactId: currentUser.id,
+            mode,
+          },
+        });
+      }
+
       callback?.({ ok: true, callId: call.id });
     });
 
-    socket.on('call:accept', ({ callId }) => {
+    socket.on('call:accept', async ({ callId }) => {
       const db = readDb();
       const call = activeCalls.get(String(callId));
       const storedCall = db.calls.find((entry) => entry.id === callId);
@@ -561,14 +791,15 @@ app.prepare().then(async () => {
         return;
       }
 
+      clearRingTimeout(call.id);
       call.status = 'active';
       storedCall.status = 'active';
-      writeDb(db);
+      await writeDb(db);
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:accepted', { callId, byUserId: currentUser.id });
     });
 
-    socket.on('call:reject', ({ callId }) => {
+    socket.on('call:reject', async ({ callId }) => {
       const db = readDb();
       const call = activeCalls.get(String(callId));
       const storedCall = db.calls.find((entry) => entry.id === callId);
@@ -576,16 +807,18 @@ app.prepare().then(async () => {
         return;
       }
 
+      clearRingTimeout(call.id);
       call.status = 'rejected';
       storedCall.status = 'rejected';
       storedCall.endedAt = new Date().toISOString();
-      writeDb(db);
+      call.endedAt = storedCall.endedAt;
+      await writeDb(db);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:rejected', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:rejected', { callId, byUserId: currentUser.id });
     });
 
-    socket.on('call:end', ({ callId }) => {
+    socket.on('call:end', async ({ callId }) => {
       const db = readDb();
       const call = activeCalls.get(String(callId));
       const storedCall = db.calls.find((entry) => entry.id === callId);
@@ -593,10 +826,12 @@ app.prepare().then(async () => {
         return;
       }
 
+      clearRingTimeout(call.id);
       call.status = 'ended';
       storedCall.status = 'ended';
       storedCall.endedAt = new Date().toISOString();
-      writeDb(db);
+      call.endedAt = storedCall.endedAt;
+      await writeDb(db);
       activeCalls.delete(callId);
       emitToUser(call.callerId, 'call:ended', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:ended', { callId, byUserId: currentUser.id });
@@ -638,6 +873,25 @@ app.prepare().then(async () => {
 
     socket.on('disconnect', () => {
       removeUserSocket(currentUser.id, socket.id);
+      [...activeCalls.values()]
+        .filter((call) => ['ringing', 'active'].includes(call.status) && (call.callerId === currentUser.id || call.recipientId === currentUser.id))
+        .forEach(async (call) => {
+          const db = readDb();
+          const storedCall = db.calls.find((entry) => entry.id === call.id);
+          if (!storedCall) {
+            return;
+          }
+
+          clearRingTimeout(call.id);
+          call.status = 'ended';
+          call.endedAt = new Date().toISOString();
+          storedCall.status = 'ended';
+          storedCall.endedAt = call.endedAt;
+          await writeDb(db);
+          activeCalls.delete(call.id);
+          emitToUser(getCallPeerId(call, currentUser.id), 'call:ended', { callId: call.id, byUserId: currentUser.id });
+        });
+
       if (!isUserOnline(currentUser.id)) {
         const db = readDb();
         const user = db.users.find((entry) => entry.id === currentUser.id);

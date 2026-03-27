@@ -1,0 +1,71 @@
+.prompt {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 120;
+  width: min(420px, calc(100vw - 24px));
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+
+.text,
+.error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.text {
+  color: #667085;
+}
+
+.error {
+  margin-top: 8px;
+  color: #b42318;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.button,
+.mutedButton {
+  border: 0;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.button {
+  color: white;
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+}
+
+.mutedButton {
+  color: #344054;
+  background: rgba(17, 24, 39, 0.08);
+}
+
+@media (max-width: 640px) {
+  .prompt {
+    right: 12px;
+    left: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+}
