@@ -38,7 +38,7 @@ function getMessagePreview(message?: ChatMessage | null) {
   }
 
   if (message.kind === 'file') {
-    return `Файл: ${message.attachment?.fileName || message.content}`;
+    return message.attachment?.mimeType?.startsWith('image/') ? 'Фото' : `Файл: ${message.attachment?.fileName || message.content}`;
   }
 
   return message.content.length > 42 ? `${message.content.slice(0, 42)}...` : message.content;
@@ -126,6 +126,7 @@ export default function ChatPage() {
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
 
@@ -673,6 +674,7 @@ export default function ChatPage() {
     }
 
     setIsUploadingFile(true);
+    setPageError('');
     try {
       const fileUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -724,6 +726,10 @@ export default function ChatPage() {
     } finally {
       setIsUploadingFile(false);
     }
+  };
+
+  const openFilePicker = () => {
+    fileInputRef.current?.click();
   };
 
   const submitEdit = (messageId: string) => {
@@ -947,6 +953,7 @@ export default function ChatPage() {
                     const isCallEvent = message.kind === 'call';
                     const isVoiceMessage = message.kind === 'voice';
                     const isFileMessage = message.kind === 'file';
+                    const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
 
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
@@ -991,6 +998,11 @@ export default function ChatPage() {
                               ) : null}
                               {isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
+                              ) : isImageMessage && message.attachment ? (
+                                <a href={message.attachment.fileUrl} target="_blank" rel="noreferrer" className={styles.imageCard}>
+                                  <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.imagePreview} loading="lazy" />
+                                  <span className={styles.imageCaption}>{message.attachment.fileName}</span>
+                                </a>
                               ) : isFileMessage && message.attachment ? (
                                 <a href={message.attachment.fileUrl} download={message.attachment.fileName} target="_blank" rel="noreferrer" className={styles.fileCard}>
                                   <span className={styles.fileIcon}>+</span>
@@ -1079,10 +1091,10 @@ export default function ChatPage() {
                       ) : null}
                     </div>
                   </div>
-                  <label className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'}>
-                    <input type="file" className={styles.hiddenFileInput} onChange={sendFile} />
+                  <input ref={fileInputRef} type="file" className={styles.hiddenFileInput} onChange={sendFile} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" />
+                  <button type="button" className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
-                  </label>
+                  </button>
                   <button type="submit" className={styles.composerButton}>Отправить</button>
                 </form>
               </div>
