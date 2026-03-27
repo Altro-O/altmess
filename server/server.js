@@ -749,6 +749,8 @@ app.prepare().then(async () => {
             mimeType: String(payload.attachment.mimeType || 'application/octet-stream'),
             sizeBytes: Number(payload.attachment.sizeBytes || 0),
             fileUrl: String(payload.attachment.fileUrl),
+            isSticker: Boolean(payload.attachment.isSticker),
+            packKey: payload.attachment.packKey ? String(payload.attachment.packKey) : null,
           }
         : null;
       const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;

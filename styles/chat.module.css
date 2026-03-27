@@ -420,6 +420,20 @@
   text-align: left;
 }
 
+.stickerCard {
+  width: min(180px, 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.stickerImage {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
 .imagePreview {
   display: block;
   width: 100%;
@@ -648,6 +662,47 @@
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.stickerPicker {
+  display: grid;
+  gap: 14px;
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.stickerPack {
+  display: grid;
+  gap: 10px;
+}
+
+.stickerPackTitle {
+  font-size: 13px;
+}
+
+.stickerGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 10px;
+}
+
+.stickerOption {
+  padding: 8px;
+  border: 0;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.stickerOptionImage {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
 }
 
 .emojiButton {

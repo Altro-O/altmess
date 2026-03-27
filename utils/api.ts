@@ -41,6 +41,8 @@ export interface ChatMessage {
     mimeType: string;
     sizeBytes: number;
     fileUrl: string;
+    isSticker?: boolean;
+    packKey?: string;
   } | null;
   callEvent?: {
     mode: 'audio' | 'video';

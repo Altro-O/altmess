@@ -14,6 +14,18 @@ const READ_VISIBILITY_THRESHOLD = 0.8;
 const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
 const MAX_IMAGE_DIMENSION = 1600;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const STICKER_PACKS = [
+  {
+    key: 'meownicorn',
+    title: 'Meownicorn',
+    items: Array.from({ length: 42 }, (_, index) => `/stickers/meownicorn/${String(index + 1).padStart(3, '0')}.webp`),
+  },
+  {
+    key: 'flork',
+    title: 'Flork',
+    items: Array.from({ length: 64 }, (_, index) => `/stickers/flork/${String(index + 1).padStart(3, '0')}.webp`),
+  },
+] as const;
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -40,6 +52,10 @@ function getMessagePreview(message?: ChatMessage | null) {
   }
 
   if (message.kind === 'file') {
+    if (message.attachment?.isSticker) {
+      return 'Стикер';
+    }
+
     return message.attachment?.mimeType?.startsWith('image/') ? 'Фото' : `Файл: ${message.attachment?.fileName || message.content}`;
   }
 
@@ -105,6 +121,7 @@ export default function ChatPage() {
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
@@ -772,6 +789,48 @@ export default function ChatPage() {
     fileInputRef.current?.click();
   };
 
+  const sendSticker = (packKey: string, fileUrl: string) => {
+    if (!socketRef.current || !activeContact) {
+      return;
+    }
+
+    const fileName = fileUrl.split('/').pop() || 'sticker.webp';
+    socketRef.current.emit(
+      'message:send',
+      {
+        recipientId: activeContact.id,
+        kind: 'file',
+        attachment: {
+          fileName,
+          mimeType: 'image/webp',
+          sizeBytes: 0,
+          fileUrl,
+          isSticker: true,
+          packKey,
+        },
+        replyToMessageId: replyMessage?.id,
+      },
+      (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+        if (!response.ok || !response.message) {
+          setPageError(response.error || 'Не удалось отправить стикер');
+          return;
+        }
+
+        setMessages((prev) => upsertMessage(prev, response.message!));
+        setSidebarItems((prev) => {
+          const existing = prev.find((contact) => contact.id === activeContact.id);
+          if (!existing) {
+            return prev;
+          }
+
+          return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
+        });
+        setReplyMessage(null);
+        setShowStickerPicker(false);
+      },
+    );
+  };
+
   const submitEdit = (messageId: string) => {
     if (!socketRef.current || !editingText.trim()) {
       return;
@@ -994,6 +1053,7 @@ export default function ChatPage() {
                     const isVoiceMessage = message.kind === 'voice';
                     const isFileMessage = message.kind === 'file';
                     const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
+                    const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
 
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
@@ -1038,6 +1098,10 @@ export default function ChatPage() {
                               ) : null}
                               {isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
+                              ) : isStickerMessage && message.attachment ? (
+                                <button type="button" className={styles.stickerCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
+                                  <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
+                                </button>
                               ) : isImageMessage && message.attachment ? (
                                 <button type="button" className={styles.imageCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
                                   <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.imagePreview} loading="lazy" />
@@ -1116,10 +1180,29 @@ export default function ChatPage() {
                     ))}
                   </div>
                 ) : null}
+                {showStickerPicker ? (
+                  <div className={styles.stickerPicker}>
+                    {STICKER_PACKS.map((pack) => (
+                      <div key={pack.key} className={styles.stickerPack}>
+                        <strong className={styles.stickerPackTitle}>{pack.title}</strong>
+                        <div className={styles.stickerGrid}>
+                          {pack.items.map((fileUrl) => (
+                            <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => sendSticker(pack.key, fileUrl)}>
+                              <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <div className={styles.composerInputWrap}>
                     <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
                     <div className={styles.composerInlineActions}>
+                      <button type="button" className={`${styles.inlineIconButton} ${showStickerPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }} title="Открыть стикеры">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5.59L8 21.41A1 1 0 0 1 6.29 20.7V17H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm2.75 6.75a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm6.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm-6.6 3.2a1 1 0 0 0-1.3 1.52 7 7 0 0 0 9.3 0 1 1 0 1 0-1.3-1.52 5 5 0 0 1-6.7 0Z" fill="currentColor"/></svg>
+                      </button>
                       <button type="button" className={`${styles.inlineIconButton} ${showEmojiPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
                         <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
                       </button>
