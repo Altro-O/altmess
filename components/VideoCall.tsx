@@ -16,13 +16,13 @@ interface VideoCallProps {
   socket: Socket;
   call: CallSession;
   iceServers: RTCIceServer[];
-  minimized: boolean;
-  onMinimize: () => void;
-  onRestore: () => void;
+  minimized?: boolean;
+  onMinimize?: () => void;
+  onRestore?: () => void;
   onClose: () => void;
 }
 
-export default function VideoCall({ socket, call, iceServers, minimized, onMinimize, onRestore, onClose }: VideoCallProps) {
+export default function VideoCall({ socket, call, iceServers, onClose }: VideoCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'outgoing' : 'incoming');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -36,13 +36,6 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
-  const ringtoneContextRef = useRef<AudioContext | null>(null);
-  const ringtoneTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const onCloseRef = useRef(onClose);
-
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
 
   const ensureRemotePlayback = async () => {
     try {
@@ -52,73 +45,10 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     }
   };
 
-  const stopRingtone = () => {
-    if (ringtoneTimerRef.current) {
-      clearInterval(ringtoneTimerRef.current);
-      ringtoneTimerRef.current = null;
-    }
-
-    if (ringtoneContextRef.current) {
-      ringtoneContextRef.current.close().catch(() => null);
-      ringtoneContextRef.current = null;
-    }
-  };
-
-  const startRingtone = () => {
-    const AudioContextCtor = typeof window === 'undefined'
-      ? null
-      : (window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext || null);
-
-    if (ringtoneTimerRef.current || !AudioContextCtor) {
-      return;
-    }
-
-    const context = new AudioContextCtor();
-    ringtoneContextRef.current = context;
-
-    const playTone = (frequency: number, delayMs: number) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = frequency;
-      gain.gain.value = 0.0001;
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      const now = context.currentTime + delayMs / 1000;
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-      oscillator.start(now);
-      oscillator.stop(now + 0.34);
-    };
-
-    const ring = () => {
-      if (context.state === 'suspended') {
-        context.resume().catch(() => null);
-      }
-      playTone(720, 0);
-      playTone(880, 260);
-    };
-
-    ring();
-    ringtoneTimerRef.current = setInterval(ring, 1800);
-  };
-
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
     setVideoEnabled(call.mode === 'video');
-    setVideoUnavailable(false);
   }, [call]);
-
-  useEffect(() => {
-    if (phase === 'incoming') {
-      startRingtone();
-      return () => stopRingtone();
-    }
-
-    stopRingtone();
-    return undefined;
-  }, [phase]);
 
   useEffect(() => {
     if (localVideoRef.current) {
@@ -138,7 +68,6 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
       remoteAudioRef.current.srcObject = remoteStream;
       remoteAudioRef.current.muted = false;
       remoteAudioRef.current.volume = 1;
-      remoteAudioRef.current.autoplay = true;
     }
 
     remoteStreamRef.current = remoteStream;
@@ -157,7 +86,6 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     remoteStreamRef.current = null;
     setRemoteStream(null);
     pendingIceCandidatesRef.current = [];
-    stopRingtone();
   };
 
   useEffect(() => {
@@ -179,7 +107,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('rejected');
       closeResources();
-      onCloseRef.current();
+      onClose();
     };
 
     const handleEnded = ({ callId }: { callId: string }) => {
@@ -189,7 +117,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('ended');
       closeResources();
-      onCloseRef.current();
+      onClose();
     };
 
     const handleMissed = ({ callId }: { callId: string }) => {
@@ -199,7 +127,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('missed');
       closeResources();
-      onCloseRef.current();
+      onClose();
     };
 
     const handleOffer = async ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
@@ -279,7 +207,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
       socket.off('webrtc:ice-candidate', handleIceCandidate);
       closeResources();
     };
-  }, [call.callId, call.initiator, socket]);
+  }, [call, onClose, socket]);
 
   const createLocalMedia = async () => {
     let stream: MediaStream;
@@ -317,7 +245,6 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
     const peerConnection = new RTCPeerConnection({ iceServers });
     const incomingStream = new MediaStream();
-    remoteStreamRef.current = incomingStream;
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -329,19 +256,17 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     };
 
     peerConnection.ontrack = (event) => {
-      const targetStream = remoteStreamRef.current || incomingStream;
-
       if (event.streams[0]) {
         event.streams[0].getTracks().forEach((track) => {
-          if (!targetStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
-            targetStream.addTrack(track);
+          if (!incomingStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
+            incomingStream.addTrack(track);
           }
         });
-      } else if (event.track && !targetStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id)) {
-        targetStream.addTrack(event.track);
+      } else if (event.track && !incomingStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id)) {
+        incomingStream.addTrack(event.track);
       }
 
-      setRemoteStream(targetStream);
+      setRemoteStream(incomingStream);
       setPhase('active');
       ensureRemotePlayback();
     };
@@ -351,19 +276,8 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
         setPhase('active');
       }
 
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'closed') {
+      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
         setPhase('error');
-        onCloseRef.current();
-      }
-
-      if (peerConnection.connectionState === 'disconnected') {
-        window.setTimeout(() => {
-          if (peerConnection.connectionState === 'disconnected') {
-            setPhase('ended');
-            closeResources();
-            onCloseRef.current();
-          }
-        }, 1800);
       }
     };
 
@@ -402,13 +316,13 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
   const rejectCall = () => {
     socket.emit('call:reject', { callId: call.callId });
     closeResources();
-    onCloseRef.current();
+    onClose();
   };
 
   const endCall = () => {
     socket.emit('call:end', { callId: call.callId });
     closeResources();
-    onCloseRef.current();
+    onClose();
   };
 
   const toggleAudio = () => {
@@ -425,6 +339,11 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
     });
   };
 
+  const closeOverlay = () => {
+    closeResources();
+    onClose();
+  };
+
   const statusText = useMemo(() => {
     if (phase === 'incoming') return 'Входящий звонок';
     if (phase === 'outgoing') return 'Ожидаем ответ';
@@ -437,15 +356,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
   }, [call.mode, phase]);
 
   return (
-    <>
-      <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
-      {minimized ? (
-        <button type="button" className={styles.minimizedCall} onClick={onRestore}>
-          <span className={styles.minimizedTitle}>{call.peerName}</span>
-          <span className={styles.minimizedText}>{statusText}</span>
-        </button>
-      ) : null}
-      <div className={`${styles.overlay} ${minimized ? styles.overlayHidden : ''}`}>
+    <div className={styles.overlay} style={{ display: 'block' }}>
       <div className={styles.backdrop} />
 
       {phase === 'incoming' ? (
@@ -478,6 +389,9 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
               <div className={styles.audioPulse}>{call.peerName.slice(0, 1).toUpperCase()}</div>
             </div>
           )}
+
+          <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
+
           <div className={styles.localCard}>
             {call.mode === 'video' ? (
               localStream?.getVideoTracks().length ? (
@@ -498,18 +412,18 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
             <button className={styles.dangerWide} onClick={endCall}>
               <span className={styles.controlTitle}>Завершить</span>
             </button>
-            <button className={styles.controlWide} onClick={onMinimize}>
-              <span className={styles.controlTitle}>Скрыть</span>
-            </button>
             {call.mode === 'video' ? (
               <button className={styles.controlWide} onClick={toggleVideo}>
                 <span className={styles.controlTitle}>{videoEnabled ? 'Камера вкл' : 'Камера выкл'}</span>
               </button>
-            ) : null}
+            ) : (
+              <button className={styles.controlWide} onClick={closeOverlay}>
+                <span className={styles.controlTitle}>Скрыть</span>
+              </button>
+            )}
           </div>
         </div>
       )}
-      </div>
-    </>
+    </div>
   );
 }
