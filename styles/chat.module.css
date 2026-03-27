@@ -270,6 +270,8 @@
   margin: 0;
   line-height: 1.55;
   font-size: 15px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .messageTimeOwn,
@@ -477,8 +479,9 @@
 @media (max-width: 960px) {
   .chatPage {
     grid-template-columns: 1fr;
-    height: auto;
+    height: calc(100vh - 78px);
     min-height: calc(100vh - 78px);
+    overflow: hidden;
   }
 
   .sidebar {
@@ -516,12 +519,14 @@
   }
 
   .panel {
-    overflow: visible;
-    min-height: calc(100vh - 78px);
+    overflow: hidden;
+    min-height: 0;
+    height: calc(100vh - 78px);
   }
 
   .messageArea {
     min-height: 0;
+    flex: 1;
   }
 
   .headerActions {
@@ -537,12 +542,14 @@
 
 @media (max-width: 640px) {
   .panel {
-    min-height: calc(100vh - 152px);
+    min-height: 0;
+    height: calc(100vh - 78px);
   }
 
   .sidebar {
     padding: 14px;
     min-height: calc(100vh - 78px);
+    overflow: auto;
   }
 
   .panelHeader,
@@ -576,18 +583,20 @@
 
   .messageArea {
     padding-top: 18px;
-    height: calc(100vh - 260px);
+    height: auto;
     overflow: auto;
   }
 
   .panelHeader {
     top: 0;
+    flex-shrink: 0;
   }
 
   .composer {
     position: sticky;
     bottom: 0;
     z-index: 7;
+    flex-shrink: 0;
   }
 
   .messageBubbleOwn,
