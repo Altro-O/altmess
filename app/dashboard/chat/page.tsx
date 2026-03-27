@@ -8,6 +8,8 @@ import VideoCall, { type CallSession } from '../../../components/VideoCall';
 import { apiFetch, type ChatMessage, type Contact } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
+const MOBILE_BREAKPOINT = 960;
+
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
   if (!existing) {
@@ -70,6 +72,8 @@ export default function ChatPage() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [actionMessageId, setActionMessageId] = useState<string | null>(null);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [showMobileChat, setShowMobileChat] = useState(false);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
     { urls: ['stun:stun1.l.google.com:19302'] },
@@ -247,6 +251,21 @@ export default function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
+    const syncViewport = () => {
+      const nextIsMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+      setIsMobileLayout(nextIsMobile);
+
+      if (!nextIsMobile) {
+        setShowMobileChat(false);
+      }
+    };
+
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    return () => window.removeEventListener('resize', syncViewport);
+  }, []);
+
+  useEffect(() => {
     const handleClose = () => setActionMessageId(null);
     window.addEventListener('click', handleClose);
     return () => window.removeEventListener('click', handleClose);
@@ -256,6 +275,13 @@ export default function ChatPage() {
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
     [activeContactId, sidebarItems],
   );
+
+  const handleSelectContact = (contactId: string) => {
+    setActiveContactId(contactId);
+    if (isMobileLayout) {
+      setShowMobileChat(true);
+    }
+  };
 
   const submitMessage = (event: React.FormEvent) => {
     event.preventDefault();
@@ -366,7 +392,7 @@ export default function ChatPage() {
   return (
     <>
       <div className={styles.chatPage}>
-        <aside className={styles.sidebar}>
+        <aside className={`${styles.sidebar} ${showMobileChat ? styles.sidebarHiddenMobile : ''}`}>
           <div className={styles.sidebarHeader}>
             <h1 className={styles.sidebarTitle}>Диалоги</h1>
             <p className={styles.sidebarText}>Список чатов теперь закреплен отдельно и не исчезает при длинной переписке.</p>
@@ -382,7 +408,7 @@ export default function ChatPage() {
 
           <div className={styles.contactList}>
             {sidebarItems.map((contact) => (
-              <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => setActiveContactId(contact.id)}>
+              <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => handleSelectContact(contact.id)}>
                 <span className={`${styles.avatar} ${styles[`avatar_${contact.avatarColor || 'ocean'}`]}`}>
                   {contact.avatarUrl ? <img src={contact.avatarUrl} alt={contact.displayName || contact.username} className={styles.avatarImage} /> : getAvatarLabel(contact)}
                 </span>
@@ -398,11 +424,16 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        <section className={styles.panel}>
+        <section className={`${styles.panel} ${showMobileChat ? styles.panelVisibleMobile : styles.panelHiddenMobile}`}>
           {activeContact ? (
             <>
               <div className={styles.panelHeader}>
                 <div className={styles.panelIdentity}>
+                  {isMobileLayout ? (
+                    <button type="button" className={styles.backButton} onClick={() => setShowMobileChat(false)}>
+                      ←
+                    </button>
+                  ) : null}
                   <span className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}>
                     {activeContact.avatarUrl ? <img src={activeContact.avatarUrl} alt={activeContact.displayName || activeContact.username} className={styles.avatarImage} /> : getAvatarLabel(activeContact)}
                   </span>
@@ -461,7 +492,7 @@ export default function ChatPage() {
                                 <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
                                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
-                                {message.updatedAt && !message.deletedAt ? <p className={styles.messageEdited}>изменено</p> : null}
+                                {message.updatedAt && !message.deletedAt ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
                                 {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
                               </div>
                               {ownMessage && !message.deletedAt && actionMessageId === message.id ? (

@@ -171,6 +171,18 @@
   min-width: 0;
 }
 
+.backButton {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 14px;
+  background: white;
+  color: #111827;
+  font-size: 22px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .headerAvatar {
   width: 54px;
   height: 54px;
@@ -281,10 +293,18 @@
   color: rgba(255, 255, 255, 0.78);
 }
 
-.messageEdited {
+.messageEditedOwn,
+.messageEditedPeer {
   margin: 0;
   font-size: 12px;
+}
+
+.messageEditedOwn {
   color: rgba(255, 255, 255, 0.72);
+}
+
+.messageEditedPeer {
+  color: #667085;
 }
 
 .messageDeleted {
@@ -459,20 +479,31 @@
 
   .sidebar {
     border-right: 0;
-    border-bottom: 1px solid rgba(17, 24, 39, 0.08);
-    max-height: 240px;
+    border-bottom: 0;
+    max-height: none;
+  }
+
+  .sidebarHiddenMobile {
+    display: none;
+  }
+
+  .panelHiddenMobile {
+    display: none;
+  }
+
+  .panelVisibleMobile {
+    display: flex;
   }
 
   .contactList {
-    display: flex;
+    display: grid;
     gap: 10px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow: visible;
     padding-bottom: 10px;
   }
 
   .contact {
-    min-width: 240px;
+    min-width: 0;
   }
 
   .panelHeader {
@@ -494,7 +525,7 @@
 @media (max-width: 640px) {
   .sidebar {
     padding: 14px;
-    max-height: 220px;
+    min-height: calc(100vh - 78px);
   }
 
   .panelHeader,
