@@ -297,6 +297,8 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
+  position: relative;
+  z-index: 2;
 }
 
 .messageTool,
@@ -451,15 +453,50 @@
 @media (max-width: 960px) {
   .chatPage {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: calc(100vh - 78px);
   }
 
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+    max-height: 240px;
+  }
+
+  .contactList {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 10px;
+  }
+
+  .contact {
+    min-width: 240px;
+  }
+
+  .panelHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .headerActions {
+    width: 100%;
+  }
+
+  .secondaryButton,
+  .composerButton {
+    flex: 1;
+    min-height: 44px;
   }
 }
 
 @media (max-width: 640px) {
+  .sidebar {
+    padding: 14px;
+    max-height: 220px;
+  }
+
   .panelHeader,
   .messageArea,
   .composer {
@@ -467,7 +504,52 @@
     padding-right: 16px;
   }
 
+  .panelIdentity {
+    width: 100%;
+  }
+
+  .headerAvatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 16px;
+  }
+
+  .panelTitle {
+    font-size: 18px;
+  }
+
+  .panelText {
+    font-size: 13px;
+  }
+
   .composerForm {
     grid-template-columns: 1fr;
+  }
+
+  .messageArea {
+    padding-top: 18px;
+  }
+
+  .messageBubbleOwn,
+  .messageBubblePeer {
+    max-width: min(92vw, 100%);
+    padding: 14px 14px 12px;
+    border-radius: 22px;
+  }
+
+  .messageContent {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .messageMetaOwn,
+  .messageMetaPeer {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .messageTools {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 }

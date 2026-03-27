@@ -69,6 +69,7 @@ export default function ChatPage() {
   const [pageError, setPageError] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [actionMessageId, setActionMessageId] = useState<string | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
     { urls: ['stun:stun1.l.google.com:19302'] },
@@ -77,6 +78,7 @@ export default function ChatPage() {
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadSidebar = useCallback(async () => {
     if (!token) {
@@ -244,6 +246,12 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const handleClose = () => setActionMessageId(null);
+    window.addEventListener('click', handleClose);
+    return () => window.removeEventListener('click', handleClose);
+  }, []);
+
   const activeContact = useMemo(
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
     [activeContactId, sidebarItems],
@@ -305,7 +313,29 @@ export default function ChatPage() {
 
       setMessages((prev) => upsertMessage(prev, response.message!));
       setSidebarItems((prev) => prev.map((contact) => (contact.lastMessage?.id === messageId ? { ...contact, lastMessage: response.message } : contact)));
+      setActionMessageId(null);
     });
+  };
+
+  const openMessageActions = (messageId: string) => {
+    setActionMessageId(messageId);
+  };
+
+  const startLongPress = (messageId: string) => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+
+    longPressTimerRef.current = setTimeout(() => {
+      setActionMessageId(messageId);
+    }, 450);
+  };
+
+  const stopLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
   };
 
   const startCall = (mode: 'audio' | 'video') => {
@@ -395,7 +425,27 @@ export default function ChatPage() {
 
                     return (
                       <div key={message.id} className={ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
-                        <div className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}>
+                        <div
+                          className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
+                          onContextMenu={(event) => {
+                            if (!ownMessage || message.deletedAt) {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openMessageActions(message.id);
+                          }}
+                          onTouchStart={() => {
+                            if (!ownMessage || message.deletedAt) {
+                              return;
+                            }
+
+                            startLongPress(message.id);
+                          }}
+                          onTouchEnd={stopLongPress}
+                          onTouchMove={stopLongPress}
+                        >
                           {isEditing ? (
                             <div className={styles.editBox}>
                               <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
@@ -414,9 +464,9 @@ export default function ChatPage() {
                                 {message.updatedAt && !message.deletedAt ? <p className={styles.messageEdited}>изменено</p> : null}
                                 {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
                               </div>
-                              {ownMessage && !message.deletedAt ? (
-                                <div className={styles.messageTools}>
-                                  <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); }}>Ред.</button>
+                              {ownMessage && !message.deletedAt && actionMessageId === message.id ? (
+                                <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
+                                  <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button>
                                   <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>
                                 </div>
                               ) : null}

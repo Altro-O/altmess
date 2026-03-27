@@ -18,6 +18,26 @@ export default function ProfilePage() {
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setStatus('Нужен файл изображения');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAvatarUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.replace('/');
@@ -89,8 +109,14 @@ export default function ProfilePage() {
           </label>
 
           <label className={styles.field}>
-            <span>Ссылка на аватар</span>
-            <input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} className={styles.input} placeholder="https://..." />
+            <span>Загрузка аватара</span>
+            <input type="file" accept="image/*" onChange={handleAvatarUpload} className={styles.fileInput} />
+          </label>
+
+          <label className={styles.field}>
+            <span>Или прямая ссылка на изображение</span>
+            <input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} className={styles.input} placeholder="https://site.com/avatar.jpg" />
+            <span className={styles.hint}>Нужна именно ссылка на сам файл картинки, а не на страницу поиска.</span>
           </label>
 
           <div className={styles.field}>

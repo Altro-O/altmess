@@ -89,6 +89,20 @@
   outline: none;
 }
 
+.fileInput {
+  width: 100%;
+  padding: 12px;
+  border: 1px dashed rgba(15, 23, 42, 0.18);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.hint {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .input:focus {
   border-color: rgba(31, 111, 255, 0.42);
   box-shadow: 0 0 0 5px rgba(31, 111, 255, 0.12);
