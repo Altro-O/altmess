@@ -90,6 +90,7 @@
 
 @media (max-width: 720px) {
   .navbar {
+    position: static;
     flex-direction: column;
     align-items: stretch;
     padding: 14px 16px;

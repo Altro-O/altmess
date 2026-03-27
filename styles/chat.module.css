@@ -162,6 +162,9 @@
   border-bottom: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.68);
   backdrop-filter: blur(14px);
+  position: sticky;
+  top: 0;
+  z-index: 8;
 }
 
 .panelIdentity {
@@ -523,6 +526,10 @@
 }
 
 @media (max-width: 640px) {
+  .panel {
+    min-height: calc(100vh - 152px);
+  }
+
   .sidebar {
     padding: 14px;
     min-height: calc(100vh - 78px);
