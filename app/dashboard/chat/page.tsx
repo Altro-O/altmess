@@ -682,6 +682,19 @@ export default function ChatPage() {
     });
   };
 
+  const handleCloseCall = useCallback(() => {
+    setCallSession(null);
+    setCallOverlayVisible(true);
+  }, []);
+
+  const handleMinimizeCall = useCallback(() => {
+    setCallOverlayVisible(false);
+  }, []);
+
+  const handleRestoreCall = useCallback(() => {
+    setCallOverlayVisible(true);
+  }, []);
+
   if (isLoading || !user) {
     return null;
   }
@@ -894,12 +907,9 @@ export default function ChatPage() {
           call={callSession}
           iceServers={iceServers}
           minimized={!callOverlayVisible}
-          onMinimize={() => setCallOverlayVisible(false)}
-          onRestore={() => setCallOverlayVisible(true)}
-          onClose={() => {
-            setCallSession(null);
-            setCallOverlayVisible(true);
-          }}
+          onMinimize={handleMinimizeCall}
+          onRestore={handleRestoreCall}
+          onClose={handleCloseCall}
         />
       ) : null}
     </>

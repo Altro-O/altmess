@@ -38,6 +38,11 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const ringtoneContextRef = useRef<AudioContext | null>(null);
   const ringtoneTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const ensureRemotePlayback = async () => {
     try {
@@ -173,7 +178,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('rejected');
       closeResources();
-      onClose();
+      onCloseRef.current();
     };
 
     const handleEnded = ({ callId }: { callId: string }) => {
@@ -183,7 +188,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('ended');
       closeResources();
-      onClose();
+      onCloseRef.current();
     };
 
     const handleMissed = ({ callId }: { callId: string }) => {
@@ -193,7 +198,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
 
       setPhase('missed');
       closeResources();
-      onClose();
+      onCloseRef.current();
     };
 
     const handleOffer = async ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
@@ -273,7 +278,7 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
       socket.off('webrtc:ice-candidate', handleIceCandidate);
       closeResources();
     };
-  }, [call, onClose, socket]);
+  }, [call.callId, call.initiator, socket]);
 
   const createLocalMedia = async () => {
     let stream: MediaStream;
@@ -382,13 +387,13 @@ export default function VideoCall({ socket, call, iceServers, minimized, onMinim
   const rejectCall = () => {
     socket.emit('call:reject', { callId: call.callId });
     closeResources();
-    onClose();
+    onCloseRef.current();
   };
 
   const endCall = () => {
     socket.emit('call:end', { callId: call.callId });
     closeResources();
-    onClose();
+    onCloseRef.current();
   };
 
   const toggleAudio = () => {
