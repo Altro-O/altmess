@@ -142,7 +142,7 @@ function buildReplyPreview(message) {
   return {
     id: message.id,
     senderId: message.senderId,
-    content: message.kind === 'voice' ? 'Голосовое сообщение' : sanitizeMessage(message).content,
+    content: message.kind === 'voice' ? 'Голосовое сообщение' : message.kind === 'file' ? 'Файл' : sanitizeMessage(message).content,
     kind: message.kind || 'text',
   };
 }
@@ -734,11 +734,19 @@ app.prepare().then(async () => {
     socket.on('message:send', async (payload, callback) => {
       const content = String(payload?.content || '').trim();
       const recipientId = String(payload?.recipientId || '');
-      const kind = payload?.kind === 'voice' ? 'voice' : 'text';
+      const kind = payload?.kind === 'voice' ? 'voice' : payload?.kind === 'file' ? 'file' : 'text';
       const voice = payload?.voice && typeof payload.voice.audioUrl === 'string'
         ? {
             audioUrl: String(payload.voice.audioUrl),
             durationSeconds: Number(payload.voice.durationSeconds || 0),
+          }
+        : null;
+      const attachment = payload?.attachment && typeof payload.attachment.fileUrl === 'string'
+        ? {
+            fileName: String(payload.attachment.fileName || 'file'),
+            mimeType: String(payload.attachment.mimeType || 'application/octet-stream'),
+            sizeBytes: Number(payload.attachment.sizeBytes || 0),
+            fileUrl: String(payload.attachment.fileUrl),
           }
         : null;
       const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;
@@ -746,7 +754,7 @@ app.prepare().then(async () => {
       const recipient = db.users.find((user) => user.id === recipientId);
       const replyToMessage = replyToMessageId ? db.messages.find((entry) => entry.id === replyToMessageId) : null;
 
-      if ((!content && kind !== 'voice') || (kind === 'voice' && !voice?.audioUrl) || !recipient) {
+      if ((!content && kind === 'text') || (kind === 'voice' && !voice?.audioUrl) || (kind === 'file' && !attachment?.fileUrl) || !recipient) {
         callback?.({ ok: false, error: 'Получатель не найден или сообщение пустое' });
         return;
       }
@@ -756,9 +764,10 @@ app.prepare().then(async () => {
         id: randomUUID(),
         senderId: currentUser.id,
         recipientId,
-        content: kind === 'voice' ? 'Голосовое сообщение' : content,
+        content: kind === 'voice' ? 'Голосовое сообщение' : kind === 'file' ? attachment.fileName : content,
         kind,
         voice,
+        attachment,
         replyTo: buildReplyPreview(replyToMessage),
         status: 'sent',
         deliveredAt: null,
@@ -799,7 +808,7 @@ app.prepare().then(async () => {
       const message = db.messages.find((entry) => entry.id === String(messageId));
       const nextContent = String(content || '').trim();
 
-      if (!message || message.senderId !== currentUser.id || message.deletedAt || message.kind === 'voice' || message.kind === 'call') {
+      if (!message || message.senderId !== currentUser.id || message.deletedAt || message.kind === 'voice' || message.kind === 'call' || message.kind === 'file') {
         callback?.({ ok: false, error: 'Сообщение нельзя изменить' });
         return;
       }

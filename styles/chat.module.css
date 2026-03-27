@@ -224,6 +224,26 @@
   gap: 10px;
 }
 
+.headerIconButton,
+.headerVideoButton {
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: white;
+}
+
+.headerIconButton {
+  background: rgba(17, 24, 39, 0.08);
+  color: #111827;
+}
+
+.headerVideoButton {
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+}
+
 .messageArea {
   flex: 1;
   overflow: auto;
@@ -386,6 +406,55 @@
 .voicePlayer {
   width: min(260px, 100%);
   margin: 2px 0 0;
+}
+
+.fileCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  text-decoration: none;
+}
+
+.messageBubblePeer .fileCard,
+.messageBubbleSystem .fileCard {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.fileIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.18);
+  font-weight: 800;
+}
+
+.messageBubblePeer .fileIcon,
+.messageBubbleSystem .fileIcon {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.fileMeta {
+  display: grid;
+  min-width: 0;
+}
+
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.fileInfo {
+  font-size: 12px;
+  opacity: 0.78;
 }
 
 .reactionRow {
@@ -617,6 +686,10 @@
   gap: 8px;
 }
 
+.hiddenFileInput {
+  display: none;
+}
+
 .iconButtonActive {
   background: rgba(229, 72, 77, 0.1);
   color: #b42318;
@@ -756,7 +829,9 @@
   }
 
   .secondaryButton,
-  .composerButton {
+  .composerButton,
+  .headerIconButton,
+  .headerVideoButton {
     flex: 1;
     min-height: 44px;
   }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
+import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
 import { apiFetch, type ChatMessage, type Contact } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
@@ -34,6 +35,10 @@ function getMessagePreview(message?: ChatMessage | null) {
 
   if (message.kind === 'voice') {
     return 'Голосовое сообщение';
+  }
+
+  if (message.kind === 'file') {
+    return `Файл: ${message.attachment?.fileName || message.content}`;
   }
 
   return message.content.length > 42 ? `${message.content.slice(0, 42)}...` : message.content;
@@ -108,6 +113,7 @@ export default function ChatPage() {
   const [callOverlayVisible, setCallOverlayVisible] = useState(true);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -122,6 +128,18 @@ export default function ChatPage() {
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
+
+  const formatFileSize = (sizeBytes: number) => {
+    if (sizeBytes < 1024) {
+      return `${sizeBytes} B`;
+    }
+
+    if (sizeBytes < 1024 * 1024) {
+      return `${(sizeBytes / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const loadSidebar = useCallback(async () => {
     if (!token) {
@@ -641,6 +659,73 @@ export default function ChatPage() {
     }
   };
 
+  const sendFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !socketRef.current || !activeContact) {
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setPageError('Файл слишком большой. Пока лимит 8 MB');
+      return;
+    }
+
+    setIsUploadingFile(true);
+    try {
+      const fileUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result === 'string') {
+            resolve(reader.result);
+            return;
+          }
+
+          reject(new Error('Не удалось прочитать файл'));
+        };
+        reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+        reader.readAsDataURL(file);
+      });
+
+      socketRef.current.emit(
+        'message:send',
+        {
+          recipientId: activeContact.id,
+          kind: 'file',
+          attachment: {
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            sizeBytes: file.size,
+            fileUrl,
+          },
+          replyToMessageId: replyMessage?.id,
+        },
+        (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+          if (!response.ok || !response.message) {
+            setPageError(response.error || 'Не удалось отправить файл');
+            return;
+          }
+
+          setMessages((prev) => upsertMessage(prev, response.message!));
+          setSidebarItems((prev) => {
+            const existing = prev.find((contact) => contact.id === activeContact.id);
+            if (!existing) {
+              return prev;
+            }
+
+            return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
+          });
+          setReplyMessage(null);
+        },
+      );
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось отправить файл');
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
   const submitEdit = (messageId: string) => {
     if (!socketRef.current || !editingText.trim()) {
       return;
@@ -755,9 +840,13 @@ export default function ChatPage() {
           <div className={styles.contactList}>
             {sidebarItems.map((contact) => (
               <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => handleSelectContact(contact.id)}>
-                <span className={`${styles.avatar} ${styles[`avatar_${contact.avatarColor || 'ocean'}`]}`}>
-                  {contact.avatarUrl ? <img src={contact.avatarUrl} alt={contact.displayName || contact.username} className={styles.avatarImage} /> : getAvatarLabel(contact)}
-                </span>
+                <UserAvatar
+                  avatarUrl={contact.avatarUrl}
+                  alt={contact.displayName || contact.username}
+                  fallback={getAvatarLabel(contact)}
+                  className={`${styles.avatar} ${styles[`avatar_${contact.avatarColor || 'ocean'}`]}`}
+                  imageClassName={styles.avatarImage}
+                />
                 <span className={styles.contactMeta}>
                   <span className={styles.contactNameRow}>
                     <span className={styles.contactName}>{contact.displayName || contact.username}</span>
@@ -780,17 +869,25 @@ export default function ChatPage() {
                       ←
                     </button>
                   ) : null}
-                  <span className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}>
-                    {activeContact.avatarUrl ? <img src={activeContact.avatarUrl} alt={activeContact.displayName || activeContact.username} className={styles.avatarImage} /> : getAvatarLabel(activeContact)}
-                  </span>
+                  <UserAvatar
+                    avatarUrl={activeContact.avatarUrl}
+                    alt={activeContact.displayName || activeContact.username}
+                    fallback={getAvatarLabel(activeContact)}
+                    className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}
+                    imageClassName={styles.avatarImage}
+                  />
                   <div>
                     <h2 className={styles.panelTitle}>Чат с {activeContact.displayName || activeContact.username}</h2>
                     <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
                   </div>
                 </div>
                 <div className={styles.headerActions}>
-                  <button type="button" className={styles.secondaryButton} onClick={() => startCall('audio')}>Аудио</button>
-                  <button type="button" className={styles.composerButton} onClick={() => startCall('video')}>Видео</button>
+                  <button type="button" className={styles.headerIconButton} onClick={() => startCall('audio')} aria-label="Аудиозвонок" title="Аудиозвонок">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
+                  </button>
+                  <button type="button" className={styles.headerVideoButton} onClick={() => startCall('video')} aria-label="Видеозвонок" title="Видеозвонок">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
+                  </button>
                 </div>
               </div>
 
@@ -801,6 +898,7 @@ export default function ChatPage() {
                     const isEditing = editingMessageId === message.id;
                     const isCallEvent = message.kind === 'call';
                     const isVoiceMessage = message.kind === 'voice';
+                    const isFileMessage = message.kind === 'file';
 
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
@@ -845,6 +943,14 @@ export default function ChatPage() {
                               ) : null}
                               {isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
+                              ) : isFileMessage && message.attachment ? (
+                                <a href={message.attachment.fileUrl} download={message.attachment.fileName} target="_blank" rel="noreferrer" className={styles.fileCard}>
+                                  <span className={styles.fileIcon}>+</span>
+                                  <span className={styles.fileMeta}>
+                                    <span className={styles.fileName}>{message.attachment.fileName}</span>
+                                    <span className={styles.fileInfo}>{formatFileSize(message.attachment.sizeBytes)}</span>
+                                  </span>
+                                </a>
                               ) : (
                                 <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
                               )}
@@ -863,7 +969,7 @@ export default function ChatPage() {
                                     ))}
                                   </div>
                                   <button type="button" className={styles.messageToolPrimary} onClick={() => { setReplyMessage(message); setActionMessageId(null); }}>Ответить</button>
-                                  {ownMessage && message.kind !== 'voice' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
+                                  {ownMessage && message.kind !== 'voice' && message.kind !== 'file' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
                                   {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
                                 </div>
                               ) : null}
@@ -912,6 +1018,10 @@ export default function ChatPage() {
                 ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                  <label className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'}>
+                    <input type="file" className={styles.hiddenFileInput} onChange={sendFile} />
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
+                  </label>
                   <button type="button" className={styles.iconButton} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
                   </button>

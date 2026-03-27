@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../components/AuthProvider';
+import UserAvatar from '../../../components/UserAvatar';
 import { apiFetch, type AuthUser } from '../../../utils/api';
 import styles from '../../../styles/profile.module.css';
 
@@ -87,9 +88,13 @@ export default function ProfilePage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <div className={`${styles.avatar} ${styles[`avatar_${avatarColor}`]}`}>
-            {avatarUrl ? <img src={avatarUrl} alt={displayName} className={styles.avatarImage} /> : displayName.slice(0, 2).toUpperCase()}
-          </div>
+          <UserAvatar
+            avatarUrl={avatarUrl}
+            alt={displayName}
+            fallback={displayName.slice(0, 2).toUpperCase()}
+            className={`${styles.avatar} ${styles[`avatar_${avatarColor}`]}`}
+            imageClassName={styles.avatarImage}
+          />
           <div>
             <p className={styles.eyebrow}>Profile</p>
             <h1 className={styles.title}>Настройки профиля</h1>

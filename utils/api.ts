@@ -21,12 +21,12 @@ export interface ChatMessage {
   senderId: string;
   recipientId: string;
   content: string;
-  kind?: 'text' | 'call' | 'voice';
+  kind?: 'text' | 'call' | 'voice' | 'file';
   replyTo?: {
     id: string;
     senderId: string;
     content: string;
-    kind?: 'text' | 'call' | 'voice';
+    kind?: 'text' | 'call' | 'voice' | 'file';
   } | null;
   reactions?: Array<{
     emoji: string;
@@ -35,6 +35,12 @@ export interface ChatMessage {
   voice?: {
     audioUrl: string;
     durationSeconds: number;
+  } | null;
+  attachment?: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    fileUrl: string;
   } | null;
   callEvent?: {
     mode: 'audio' | 'video';
