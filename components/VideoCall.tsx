@@ -53,6 +53,23 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     }
   };
 
+  const getMediaConstraints = (): MediaStreamConstraints => ({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+    video: call.mode === 'video'
+      ? {
+          facingMode: 'user',
+          width: { ideal: 640, max: 960 },
+          height: { ideal: 360, max: 540 },
+          frameRate: { ideal: 24, max: 30 },
+        }
+      : false,
+  });
+
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
     setVideoEnabled(call.mode === 'video');
@@ -224,10 +241,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     let stream: MediaStream;
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: call.mode === 'video',
-      });
+      stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints());
       setVideoUnavailable(false);
     } catch (error) {
       if (call.mode !== 'video') {
@@ -235,7 +249,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
         video: false,
       });
       setVideoUnavailable(true);
@@ -243,6 +262,12 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     }
 
     localStreamRef.current = stream;
+    stream.getAudioTracks().forEach((track) => {
+      track.contentHint = 'speech';
+    });
+    stream.getVideoTracks().forEach((track) => {
+      track.contentHint = 'motion';
+    });
     setLocalStream(stream);
     setAudioEnabled(stream.getAudioTracks().some((track) => track.enabled));
     setVideoEnabled(stream.getVideoTracks().some((track) => track.enabled));
@@ -312,6 +337,26 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     };
 
     stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
+
+    peerConnection.getSenders().forEach((sender) => {
+      if (!sender.track) {
+        return;
+      }
+
+      const parameters = sender.getParameters();
+      parameters.encodings = parameters.encodings || [{}];
+
+      if (sender.track.kind === 'audio') {
+        parameters.encodings[0].maxBitrate = 32000;
+      }
+
+      if (sender.track.kind === 'video') {
+        parameters.encodings[0].maxBitrate = 700000;
+        parameters.encodings[0].maxFramerate = 24;
+      }
+
+      sender.setParameters(parameters).catch(() => null);
+    });
 
     if (call.mode === 'video' && stream.getVideoTracks().length === 0) {
       peerConnection.addTransceiver('video', { direction: 'recvonly' });
