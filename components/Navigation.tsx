@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import styles from '../styles/navigation.module.css';
 import { useAuth } from './AuthProvider';
 
@@ -10,7 +11,9 @@ export default function Navigation() {
   return (
     <nav className={styles.navbar}>
       <Link href="/" className={styles.brand}>
-        <span className={styles.brandMark}>A</span>
+        <span className={styles.brandMark}>
+          <Image src="/altmess.jpeg" alt="Altmess" width={42} height={42} className={styles.brandMarkImage} />
+        </span>
         <span className={styles.brandText}>
           <span className={styles.brandTitle}>Altmess</span>
           <span className={styles.brandSubtitle}>realtime messenger</span>

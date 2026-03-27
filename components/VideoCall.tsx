@@ -25,8 +25,10 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(call.mode === 'video');
+  const [videoUnavailable, setVideoUnavailable] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -46,6 +48,16 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   useEffect(() => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current
+        .play()
+        .catch(() => null);
+    }
+
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current
+        .play()
+        .catch(() => null);
     }
 
     remoteStreamRef.current = remoteStream;
@@ -185,13 +197,31 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   }, [call, onClose, socket]);
 
   const createLocalMedia = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: call.mode === 'video',
-    });
+    let stream: MediaStream;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: call.mode === 'video',
+      });
+      setVideoUnavailable(false);
+    } catch (error) {
+      if (call.mode !== 'video') {
+        throw error;
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      setVideoUnavailable(true);
+      setVideoEnabled(false);
+    }
 
     localStreamRef.current = stream;
     setLocalStream(stream);
+    setAudioEnabled(stream.getAudioTracks().some((track) => track.enabled));
+    setVideoEnabled(stream.getVideoTracks().some((track) => track.enabled));
     return stream;
   };
 
@@ -213,7 +243,16 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     };
 
     peerConnection.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => incomingStream.addTrack(track));
+      if (event.streams[0]) {
+        event.streams[0].getTracks().forEach((track) => {
+          if (!incomingStream.getTracks().some((existingTrack) => existingTrack.id === track.id)) {
+            incomingStream.addTrack(track);
+          }
+        });
+      } else if (event.track && !incomingStream.getTracks().some((existingTrack) => existingTrack.id === event.track.id)) {
+        incomingStream.addTrack(event.track);
+      }
+
       setRemoteStream(incomingStream);
       setPhase('active');
     };
@@ -327,9 +366,15 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
             </div>
           )}
 
+          <audio ref={remoteAudioRef} autoPlay playsInline />
+
           <div className={styles.localCard}>
             {call.mode === 'video' ? (
-              <video ref={localVideoRef} autoPlay playsInline muted className={styles.localVideo} />
+              localStream?.getVideoTracks().length ? (
+                <video ref={localVideoRef} autoPlay playsInline muted className={styles.localVideo} />
+              ) : (
+                <div className={styles.audioStageMini}>{videoUnavailable ? 'No Cam' : 'Mic'}</div>
+              )
             ) : (
               <div className={styles.audioStageMini}>Mic</div>
             )}
