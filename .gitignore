@@ -1,0 +1,8 @@
+.next/
+node_modules/
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
+tsconfig.tsbuildinfo
+next-debug.log
+server-smoke.log

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: altmess
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_PATH
+        value: /var/data/altmess.sqlite
+    disks:
+      - name: altmess-data
+        mountPath: /var/data
+        sizeGB: 1

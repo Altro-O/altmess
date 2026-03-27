@@ -1,0 +1,39 @@
+{
+  "name": "messenger-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node server/server.js",
+    "build": "next build",
+    "start": "node server/server.js",
+    "lint": "next lint",
+    "build:tailwind": "tailwindcss -o app/globals.css"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "concurrently": "^8.2.2",
+    "crypto-js": "^4.2.0",
+    "express": "^4.22.1",
+    "jsonwebtoken": "^9.0.3",
+    "next": "14.0.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.7.2",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "uuid": "^13.0.0",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.27",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.0",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5"
+  }
+}

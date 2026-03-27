@@ -1,0 +1,208 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at top, rgba(31, 111, 255, 0.2), transparent 30%),
+    rgba(4, 10, 26, 0.95);
+}
+
+.incoming {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.incomingCard {
+  width: min(420px, 100%);
+  padding: 28px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+.incomingAvatar {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+  color: white;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.incomingTitle {
+  margin: 0;
+  font-family: 'Space Grotesk', 'Manrope', sans-serif;
+  font-size: 30px;
+}
+
+.incomingText {
+  margin: 8px 0 22px;
+  color: #667085;
+}
+
+.incomingActions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.callScreen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.remoteVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: linear-gradient(180deg, #081223, #111827);
+}
+
+.audioStage,
+.audioStageMini {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at top, rgba(31, 111, 255, 0.28), rgba(8, 18, 35, 0.96));
+  color: white;
+}
+
+.audioPulse {
+  width: 164px;
+  height: 164px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+  font-size: 56px;
+  font-weight: 800;
+  box-shadow: 0 0 0 28px rgba(31, 111, 255, 0.12);
+}
+
+.audioStageMini {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.topBar {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 2;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(14px);
+  color: white;
+}
+
+.topBar strong {
+  display: block;
+  font-size: 18px;
+}
+
+.topBar span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+
+.localCard {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 2;
+  width: 220px;
+  height: 148px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 22px;
+  background: rgba(15, 23, 42, 0.65);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.localVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.localBadge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.controls {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.control,
+.danger {
+  width: 58px;
+  height: 58px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: white;
+}
+
+.control {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.danger {
+  background: linear-gradient(135deg, #ff5f6d, #e5484d);
+}
+
+@media (max-width: 700px) {
+  .localCard {
+    width: 128px;
+    height: 180px;
+    top: 16px;
+    right: 16px;
+  }
+
+  .topBar {
+    top: 16px;
+    left: 16px;
+    right: 160px;
+  }
+
+  .controls {
+    bottom: 18px;
+  }
+}
