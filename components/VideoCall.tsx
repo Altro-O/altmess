@@ -36,6 +36,14 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearDisconnectTimer = () => {
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
+  };
 
   const ensureRemotePlayback = async () => {
     try {
@@ -48,6 +56,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
     setVideoEnabled(call.mode === 'video');
+    setVideoUnavailable(false);
+    clearDisconnectTimer();
   }, [call]);
 
   useEffect(() => {
@@ -75,6 +85,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   }, [remoteStream]);
 
   const closeResources = () => {
+    clearDisconnectTimer();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
 
@@ -268,16 +279,29 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
       setRemoteStream(incomingStream);
       setPhase('active');
+      clearDisconnectTimer();
       ensureRemotePlayback();
     };
 
     peerConnection.onconnectionstatechange = () => {
       if (peerConnection.connectionState === 'connected') {
         setPhase('active');
+        clearDisconnectTimer();
       }
 
-      if (peerConnection.connectionState === 'failed' || peerConnection.connectionState === 'disconnected') {
+      if (peerConnection.connectionState === 'failed') {
         setPhase('error');
+        closeResources();
+        onClose();
+      }
+
+      if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'closed') {
+        clearDisconnectTimer();
+        disconnectTimerRef.current = setTimeout(() => {
+          setPhase('ended');
+          closeResources();
+          onClose();
+        }, 1200);
       }
     };
 
@@ -288,6 +312,11 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     };
 
     stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
+
+    if (call.mode === 'video' && stream.getVideoTracks().length === 0) {
+      peerConnection.addTransceiver('video', { direction: 'recvonly' });
+    }
+
     peerConnectionRef.current = peerConnection;
     return peerConnection;
   };
