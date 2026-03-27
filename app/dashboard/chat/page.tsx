@@ -12,6 +12,8 @@ import styles from '../../../styles/chat.module.css';
 const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
 const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
+const MAX_IMAGE_DIMENSION = 1600;
+const MAX_FILE_BYTES = 12 * 1024 * 1024;
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -114,6 +116,7 @@ export default function ChatPage() {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ src: string; name: string } | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -140,6 +143,49 @@ export default function ChatPage() {
     }
 
     return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('Не удалось прочитать файл'));
+    };
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.readAsDataURL(file);
+  });
+
+  const compressImageFile = async (file: File) => {
+    const sourceUrl = await fileToDataUrl(file);
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error('Не удалось обработать изображение'));
+      nextImage.src = sourceUrl;
+    });
+
+    const ratio = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * ratio));
+    canvas.height = Math.max(1, Math.round(image.height * ratio));
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('Не удалось подготовить изображение');
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const fileUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+    return {
+      fileUrl,
+      mimeType: 'image/jpeg',
+      sizeBytes: Math.ceil((fileUrl.length * 3) / 4),
+    };
   };
 
   const loadSidebar = useCallback(async () => {
@@ -668,27 +714,21 @@ export default function ChatPage() {
       return;
     }
 
-    if (file.size > 8 * 1024 * 1024) {
-      setPageError('Файл слишком большой. Пока лимит 8 MB');
+    if (file.size > MAX_FILE_BYTES) {
+      setPageError('Файл слишком большой. Пока лимит 12 MB');
       return;
     }
 
     setIsUploadingFile(true);
     setPageError('');
     try {
-      const fileUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          if (typeof reader.result === 'string') {
-            resolve(reader.result);
-            return;
-          }
-
-          reject(new Error('Не удалось прочитать файл'));
-        };
-        reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
-        reader.readAsDataURL(file);
-      });
+      const preparedFile = file.type.startsWith('image/')
+        ? await compressImageFile(file)
+        : {
+            fileUrl: await fileToDataUrl(file),
+            mimeType: file.type || 'application/octet-stream',
+            sizeBytes: file.size,
+          };
 
       socketRef.current.emit(
         'message:send',
@@ -697,9 +737,9 @@ export default function ChatPage() {
           kind: 'file',
           attachment: {
             fileName: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            sizeBytes: file.size,
-            fileUrl,
+            mimeType: preparedFile.mimeType,
+            sizeBytes: preparedFile.sizeBytes,
+            fileUrl: preparedFile.fileUrl,
           },
           replyToMessageId: replyMessage?.id,
         },
@@ -999,10 +1039,10 @@ export default function ChatPage() {
                               {isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
                               ) : isImageMessage && message.attachment ? (
-                                <a href={message.attachment.fileUrl} target="_blank" rel="noreferrer" className={styles.imageCard}>
+                                <button type="button" className={styles.imageCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
                                   <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.imagePreview} loading="lazy" />
                                   <span className={styles.imageCaption}>{message.attachment.fileName}</span>
-                                </a>
+                                </button>
                               ) : isFileMessage && message.attachment ? (
                                 <a href={message.attachment.fileUrl} download={message.attachment.fileName} target="_blank" rel="noreferrer" className={styles.fileCard}>
                                   <span className={styles.fileIcon}>+</span>
@@ -1121,6 +1161,12 @@ export default function ChatPage() {
           onRestore={handleRestoreCall}
           onClose={handleCloseCall}
         />
+      ) : null}
+      {previewImage ? (
+        <button type="button" className={styles.imageLightbox} onClick={() => setPreviewImage(null)}>
+          <img src={previewImage.src} alt={previewImage.name} className={styles.imageLightboxMedia} />
+          <span className={styles.imageLightboxCaption}>{previewImage.name}</span>
+        </button>
       ) : null}
     </>
   );
