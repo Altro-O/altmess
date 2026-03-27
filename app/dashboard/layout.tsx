@@ -1,5 +1,4 @@
 import Navigation from '../../components/Navigation';
-import styles from '../../styles/dashboardLayout.module.css';
 
 export default function DashboardLayout({
   children,
@@ -7,9 +6,9 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className={styles.shell}>
+    <div>
       <Navigation />
-      <main className={styles.content}>{children}</main>
+      <main>{children}</main>
     </div>
   );
 }

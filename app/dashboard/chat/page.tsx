@@ -437,7 +437,7 @@ export default function ChatPage() {
                   <span className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}>
                     {activeContact.avatarUrl ? <img src={activeContact.avatarUrl} alt={activeContact.displayName || activeContact.username} className={styles.avatarImage} /> : getAvatarLabel(activeContact)}
                   </span>
-                  <div className={styles.panelInfo}>
+                  <div>
                     <h2 className={styles.panelTitle}>Чат с {activeContact.displayName || activeContact.username}</h2>
                     <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
                   </div>
@@ -456,57 +456,53 @@ export default function ChatPage() {
 
                     return (
                       <div key={message.id} className={ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
-                        <div className={ownMessage ? styles.messageCardOwn : styles.messageCardPeer}>
-                          <div
-                            className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
-                            onContextMenu={(event) => {
-                              if (!ownMessage || message.deletedAt) {
-                                return;
-                              }
+                        <div
+                          className={ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer}
+                          onContextMenu={(event) => {
+                            if (!ownMessage || message.deletedAt) {
+                              return;
+                            }
 
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openMessageActions(message.id);
-                            }}
-                            onTouchStart={() => {
-                              if (!ownMessage || message.deletedAt) {
-                                return;
-                              }
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openMessageActions(message.id);
+                          }}
+                          onTouchStart={() => {
+                            if (!ownMessage || message.deletedAt) {
+                              return;
+                            }
 
-                              startLongPress(message.id);
-                            }}
-                            onTouchEnd={stopLongPress}
-                            onTouchMove={stopLongPress}
-                          >
-                            {isEditing ? (
-                              <div className={styles.editBox}>
-                                <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
-                                <div className={styles.editActions}>
-                                  <button type="button" className={styles.smallButton} onClick={() => submitEdit(message.id)}>Сохранить</button>
-                                  <button type="button" className={styles.smallMutedButton} onClick={() => { setEditingMessageId(null); setEditingText(''); }}>Отмена</button>
-                                </div>
+                            startLongPress(message.id);
+                          }}
+                          onTouchEnd={stopLongPress}
+                          onTouchMove={stopLongPress}
+                        >
+                          {isEditing ? (
+                            <div className={styles.editBox}>
+                              <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
+                              <div className={styles.editActions}>
+                                <button type="button" className={styles.smallButton} onClick={() => submitEdit(message.id)}>Сохранить</button>
+                                <button type="button" className={styles.smallMutedButton} onClick={() => { setEditingMessageId(null); setEditingText(''); }}>Отмена</button>
                               </div>
-                            ) : (
+                            </div>
+                          ) : (
+                            <>
                               <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
-                            )}
-                          </div>
-
-                          {!isEditing ? (
-                            <div className={ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
-                              <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
-                                {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                              {message.updatedAt && !message.deletedAt ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
-                              {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
-                            </div>
-                          ) : null}
-
-                          {ownMessage && !message.deletedAt && actionMessageId === message.id && !isEditing ? (
-                            <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
-                              <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button>
-                              <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>
-                            </div>
-                          ) : null}
+                              <div className={ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
+                                <p className={ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
+                                  {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                                {message.updatedAt && !message.deletedAt ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
+                                {ownMessage ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
+                              </div>
+                              {ownMessage && !message.deletedAt && actionMessageId === message.id ? (
+                                <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
+                                  <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button>
+                                  <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     );
