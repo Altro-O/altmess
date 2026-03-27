@@ -288,6 +288,10 @@ app.prepare().then(async () => {
 
   expressApp.use(express.json({ limit: '2mb' }));
 
+  expressApp.get('/healthz', (req, res) => {
+    res.status(200).json({ ok: true });
+  });
+
   expressApp.post('/api/auth/register', async (req, res) => {
     const { username, email, password } = req.body || {};
 
