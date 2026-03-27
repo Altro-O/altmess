@@ -6,6 +6,16 @@ export const metadata = {
   title: 'Altmess',
   description: 'Realtime messenger with chat and calls',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/altmess.jpeg',
+    shortcut: '/altmess.jpeg',
+    apple: '/altmess.jpeg',
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Altmess',
+  },
 };
 
 export default function RootLayout({
