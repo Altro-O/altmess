@@ -518,13 +518,6 @@
   backdrop-filter: blur(16px);
 }
 
-.composerToolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
 .emojiPicker {
   display: flex;
   flex-wrap: wrap;
@@ -580,12 +573,13 @@
 
 .composerForm {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 12px;
 }
 
 .composerInput {
   width: 100%;
+  min-width: 0;
   padding: 16px 18px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 18px;
@@ -601,6 +595,7 @@
 .composerButton {
   border: 0;
   padding: 0 22px;
+  min-width: 138px;
   border-radius: 18px;
   background: linear-gradient(135deg, #1f6fff, #13b7a6);
   color: white;
@@ -609,8 +604,9 @@
 }
 
 .iconButton {
+  width: 54px;
   min-width: 54px;
-  padding: 0 16px;
+  padding: 0;
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.92);
@@ -804,7 +800,12 @@
   }
 
   .composerForm {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(0, 1fr) 52px 52px auto;
+  }
+
+  .composerButton {
+    min-width: 112px;
+    padding: 0 16px;
   }
 
   .messageArea {

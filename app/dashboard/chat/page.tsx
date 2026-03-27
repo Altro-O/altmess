@@ -163,6 +163,11 @@ export default function ChatPage() {
     }
 
     let alive = true;
+    const closeActiveCall = ({ callId }: { callId: string }) => {
+      setCallSession((prev) => (prev?.callId === callId ? null : prev));
+      setCallOverlayVisible(true);
+    };
+
     const syncVisibility = () => {
       socketRef.current?.emit('client:visibility', { visible: document.visibilityState === 'visible' });
     };
@@ -267,6 +272,10 @@ export default function ChatPage() {
           });
           setCallOverlayVisible(true);
         });
+
+        socket.on('call:ended', closeActiveCall);
+        socket.on('call:rejected', closeActiveCall);
+        socket.on('call:missed', closeActiveCall);
       } catch (error) {
         setPageError(error instanceof Error ? error.message : 'Не удалось загрузить чат');
       }
@@ -276,12 +285,15 @@ export default function ChatPage() {
 
     return () => {
       alive = false;
-      document.removeEventListener('visibilitychange', syncVisibility);
-      window.removeEventListener('focus', syncVisibility);
-      window.removeEventListener('blur', syncVisibility);
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-    };
+        document.removeEventListener('visibilitychange', syncVisibility);
+        window.removeEventListener('focus', syncVisibility);
+        window.removeEventListener('blur', syncVisibility);
+        socketRef.current?.off('call:ended', closeActiveCall);
+        socketRef.current?.off('call:rejected', closeActiveCall);
+        socketRef.current?.off('call:missed', closeActiveCall);
+        socketRef.current?.disconnect();
+        socketRef.current = null;
+      };
   }, [currentUserId, router, token, user]);
 
   useEffect(() => {
@@ -891,9 +903,6 @@ export default function ChatPage() {
                     <button type="button" className={styles.replyBannerClose} onClick={() => setReplyMessage(null)}>X</button>
                   </div>
                 ) : null}
-                <div className={styles.composerToolbar}>
-                  <button type="button" className={styles.secondaryButton} onClick={() => setShowEmojiPicker((prev) => !prev)}>Эмодзи</button>
-                </div>
                 {showEmojiPicker ? (
                   <div className={styles.emojiPicker}>
                     {EMOJI_OPTIONS.map((emoji) => (
@@ -903,6 +912,9 @@ export default function ChatPage() {
                 ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                  <button type="button" className={styles.iconButton} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
+                  </button>
                   <button type="button" className={`${styles.iconButton} ${isRecordingVoice ? styles.iconButtonActive : ''}`} onClick={() => startVoiceRecording()} title={isRecordingVoice ? `Остановить запись ${voiceSeconds}s` : 'Записать голосовое'}>
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z" fill="currentColor"/></svg>
                     {isRecordingVoice ? <span className={styles.iconButtonText}>{voiceSeconds}s</span> : null}
