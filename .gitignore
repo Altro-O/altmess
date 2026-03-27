@@ -3,6 +3,7 @@ node_modules/
 server/data/*.sqlite
 server/data/*.sqlite-shm
 server/data/*.sqlite-wal
+server/data/db.json
 tsconfig.tsbuildinfo
 next-debug.log
 server-smoke.log
