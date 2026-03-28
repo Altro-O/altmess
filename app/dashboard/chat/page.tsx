@@ -177,7 +177,7 @@ export default function ChatPage() {
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const quoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const quoteSelectionRef = useRef<HTMLDivElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
 
@@ -702,20 +702,26 @@ export default function ChatPage() {
 
     setQuoteDraft(replyQuote || replyMessage.content);
     setShowQuoteEditor(true);
-    requestAnimationFrame(() => {
-      quoteTextareaRef.current?.focus();
-      quoteTextareaRef.current?.select();
-    });
   };
 
   const applyQuoteSelection = () => {
-    const textarea = quoteTextareaRef.current;
-    const selectedText = textarea
-      ? textarea.value.slice(textarea.selectionStart, textarea.selectionEnd).trim()
+    const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+    const selectedText = selection && quoteSelectionRef.current?.contains(selection.anchorNode)
+      ? selection.toString().trim()
       : '';
     const nextQuote = (selectedText || quoteDraft).trim().slice(0, 280);
     setReplyQuote(nextQuote);
     setShowQuoteEditor(false);
+  };
+
+  const beginQuote = (message: ChatMessage) => {
+    beginReply(message);
+    if (message.kind !== 'text' || message.deletedAt) {
+      return;
+    }
+
+    setQuoteDraft(message.content);
+    setShowQuoteEditor(true);
   };
 
   const clearReply = () => {
@@ -1294,6 +1300,7 @@ export default function ChatPage() {
                                     ))}
                                   </div>
                                   <button type="button" className={styles.messageToolPrimary} onClick={() => beginReply(message)}>Ответить</button>
+                                  {message.kind === 'text' && !message.deletedAt ? <button type="button" className={styles.messageTool} onClick={() => beginQuote(message)}>Цитировать</button> : null}
                                   {ownMessage && message.kind !== 'voice' && message.kind !== 'file' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
                                   {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
                                 </div>
@@ -1338,11 +1345,13 @@ export default function ChatPage() {
                 {showQuoteEditor && replyMessage?.kind === 'text' ? (
                   <div className={styles.quoteEditor}>
                     <strong className={styles.quoteEditorTitle}>Выберите фрагмент для цитаты</strong>
-                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста, как в Telegram. Если ничего не выделите, возьмется весь текущий текст.</p>
-                    <textarea ref={quoteTextareaRef} value={quoteDraft} onChange={(event) => setQuoteDraft(event.target.value)} className={styles.quoteEditorInput} rows={4} />
+                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста. Исходное сообщение здесь только для чтения и не редактируется.</p>
+                    <div ref={quoteSelectionRef} className={styles.quoteEditorSelection}>
+                      {quoteDraft}
+                    </div>
                     <div className={styles.quoteEditorActions}>
-                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setShowQuoteEditor(false); }}>Без цитаты</button>
-                      <button type="button" className={styles.smallButton} onClick={applyQuoteSelection}>Использовать</button>
+                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setShowQuoteEditor(false); }}>Отмена</button>
+                      <button type="button" className={styles.smallButton} onClick={applyQuoteSelection}>Цитировать</button>
                     </div>
                   </div>
                 ) : null}
