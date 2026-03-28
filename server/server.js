@@ -25,6 +25,8 @@ const RING_TIMEOUT_MS = 30000;
 const MAX_MEDIA_UPLOAD_BYTES = 12 * 1024 * 1024;
 const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
+const MEDIA_UPSTREAM_URL = String(process.env.MEDIA_UPSTREAM_URL || '').trim().replace(/\/$/, '');
+const MEDIA_UPSTREAM_TOKEN = String(process.env.MEDIA_UPSTREAM_TOKEN || '').trim();
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
@@ -48,6 +50,10 @@ async function writeDb(data) {
 
 async function ensureMediaUploadDir() {
   await fs.mkdir(MEDIA_UPLOAD_DIR, { recursive: true });
+}
+
+function hasMediaUpstream() {
+  return Boolean(MEDIA_UPSTREAM_URL && MEDIA_UPSTREAM_TOKEN);
 }
 
 function publicUser(user) {
@@ -236,7 +242,27 @@ function resolveStoredMediaPath(fileUrl) {
 }
 
 async function deleteStoredMediaAttachment(attachment) {
-  if (!attachment?.fileUrl || attachment.isSticker || attachment.storageKind !== 'local') {
+  if (!attachment?.fileUrl || attachment.isSticker) {
+    return false;
+  }
+
+  if (attachment.storageKind === 'vps' && attachment.storageKey && hasMediaUpstream()) {
+    try {
+      const response = await fetch(`${MEDIA_UPSTREAM_URL}/upload/${encodeURIComponent(attachment.storageKey)}`, {
+        method: 'DELETE',
+        headers: {
+          'X-Media-Token': MEDIA_UPSTREAM_TOKEN,
+        },
+      });
+
+      return response.ok;
+    } catch (error) {
+      console.error('Failed to delete VPS media:', error);
+      return false;
+    }
+  }
+
+  if (attachment.storageKind !== 'local') {
     return false;
   }
 
@@ -256,6 +282,28 @@ async function deleteStoredMediaAttachment(attachment) {
     console.error('Failed to delete stored media:', error);
     return false;
   }
+}
+
+async function uploadToMediaUpstream(req, res, fileName, mimeType, sizeBytes) {
+  const response = await fetch(`${MEDIA_UPSTREAM_URL}/upload`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': mimeType,
+      'X-Media-Token': MEDIA_UPSTREAM_TOKEN,
+      'X-File-Name': fileName,
+      'X-File-Size': String(sizeBytes),
+    },
+    body: req.body,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.attachment) {
+    res.status(response.status || 502).json({ error: data.error || 'Не удалось сохранить файл на VPS' });
+    return true;
+  }
+
+  res.status(201).json({ attachment: data.attachment });
+  return true;
 }
 
 function buildReplyPreview(message) {
@@ -348,7 +396,9 @@ async function persistCallLog(db, call, actorId) {
 
 app.prepare().then(async () => {
   await loadState();
-  await ensureMediaUploadDir();
+  if (!hasMediaUpstream()) {
+    await ensureMediaUploadDir();
+  }
 
   const expressApp = express();
   const server = http.createServer(expressApp);
@@ -637,11 +687,13 @@ app.prepare().then(async () => {
   }
 
   expressApp.use(express.json({ limit: '2mb' }));
-  expressApp.use('/uploads', express.static(MEDIA_UPLOAD_DIR, {
-    fallthrough: false,
-    index: false,
-    maxAge: '7d',
-  }));
+  if (!hasMediaUpstream()) {
+    expressApp.use('/uploads', express.static(MEDIA_UPLOAD_DIR, {
+      fallthrough: false,
+      index: false,
+      maxAge: '7d',
+    }));
+  }
 
   expressApp.get('/healthz', (req, res) => {
     res.status(200).json({ ok: true });
@@ -778,6 +830,11 @@ app.prepare().then(async () => {
     }
 
     try {
+      if (hasMediaUpstream()) {
+        await uploadToMediaUpstream(req, res, fileName, mimeType, sizeBytes);
+        return;
+      }
+
       const stored = await storeUploadedMedia(req.body, fileName, mimeType);
       res.status(201).json({
         attachment: {

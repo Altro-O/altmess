@@ -6,6 +6,7 @@
     "dev": "node server/server.js",
     "build": "next build",
     "start": "node server/server.js",
+    "media:start": "node server/media-server.js",
     "lint": "next lint",
     "build:tailwind": "tailwindcss -o app/globals.css"
   },

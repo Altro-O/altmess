@@ -44,7 +44,7 @@ export interface ChatMessage {
     isSticker?: boolean;
     packKey?: string;
     storageKey?: string | null;
-    storageKind?: 'inline' | 'local' | 'sticker' | null;
+    storageKind?: 'inline' | 'local' | 'sticker' | 'vps' | null;
     storageStatus?: 'ready' | 'deleted' | 'expired' | null;
     uploadedAt?: string | null;
   } | null;
