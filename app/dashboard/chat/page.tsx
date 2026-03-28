@@ -169,6 +169,7 @@ export default function ChatPage() {
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
 
@@ -650,7 +651,29 @@ export default function ChatPage() {
       setInputText('');
       setReplyMessage(null);
       setShowEmojiPicker(false);
+      if (composerTextareaRef.current) {
+        composerTextareaRef.current.style.height = '0px';
+      }
     });
+  };
+
+  useEffect(() => {
+    const textarea = composerTextareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = '0px';
+    const nextHeight = Math.min(textarea.scrollHeight, 144);
+    textarea.style.height = `${Math.max(56, nextHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 144 ? 'auto' : 'hidden';
+  }, [inputText]);
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      submitMessage(event);
+    }
   };
 
   const appendEmoji = (emoji: string) => {
@@ -1111,6 +1134,7 @@ export default function ChatPage() {
                     const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
                     const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
                     const isPhotoMessage = isImageMessage && !isStickerMessage;
+                    const hasQuickActionButton = ownMessage && !message.deletedAt && !isCallEvent && isFileMessage;
                     const fileBadgeLabel = message.attachment
                       ? getFileBadgeLabel(message.attachment.fileName, message.attachment.mimeType)
                       : 'FILE';
@@ -1140,6 +1164,20 @@ export default function ChatPage() {
                           onTouchEnd={stopLongPress}
                           onTouchMove={stopLongPress}
                         >
+                          {hasQuickActionButton ? (
+                            <button
+                              type="button"
+                              className={styles.messageQuickAction}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openMessageActions(message.id);
+                              }}
+                              aria-label="Действия с сообщением"
+                              title="Действия"
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm0 6.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5Zm0 6.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" fill="currentColor"/></svg>
+                            </button>
+                          ) : null}
                           {isEditing ? (
                             <div className={styles.editBox}>
                               <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
@@ -1260,7 +1298,15 @@ export default function ChatPage() {
                 ) : null}
                 <form onSubmit={submitMessage} className={styles.composerForm}>
                   <div className={styles.composerInputWrap}>
-                    <input type="text" value={inputText} onChange={(event) => setInputText(event.target.value)} placeholder="Введите сообщение..." className={styles.composerInput} />
+                    <textarea
+                      ref={composerTextareaRef}
+                      value={inputText}
+                      onChange={(event) => setInputText(event.target.value)}
+                      onKeyDown={handleComposerKeyDown}
+                      placeholder="Введите сообщение..."
+                      className={styles.composerInput}
+                      rows={1}
+                    />
                     <div className={styles.composerInlineActions}>
                       <button type="button" className={`${styles.inlineIconButton} ${showStickerPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }} title="Открыть стикеры">
                         <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5.59L8 21.41A1 1 0 0 1 6.29 20.7V17H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm2.75 6.75a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm6.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm-6.6 3.2a1 1 0 0 0-1.3 1.52 7 7 0 0 0 9.3 0 1 1 0 1 0-1.3-1.52 5 5 0 0 1-6.7 0Z" fill="currentColor"/></svg>
@@ -1280,7 +1326,9 @@ export default function ChatPage() {
                   <button type="button" className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
                   </button>
-                  <button type="submit" className={styles.composerButton}>Отправить</button>
+                  <button type="submit" className={styles.composerButton} aria-label="Отправить сообщение" title="Отправить">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M3.4 11.3 18.8 4.7c1.5-.64 2.98.84 2.34 2.34L14.7 22.6c-.72 1.7-3.13 1.55-3.64-.22l-1.53-5.34-5.31-1.5c-1.8-.5-1.95-2.92-.24-3.65Zm6.95 4.08 1.27 4.44 6.09-14.2-14.2 6.1 4.46 1.26 6.3-6.3.88.88-6.3 6.3Z" fill="currentColor"/></svg>
+                  </button>
                 </form>
               </div>
             </>

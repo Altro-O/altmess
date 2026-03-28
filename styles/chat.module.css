@@ -273,6 +273,7 @@
 .messageBubbleOwn,
 .messageBubblePeer,
 .messageBubbleSystem {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: fit-content;
@@ -796,7 +797,8 @@
 .composerForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 12px;
+  align-items: end;
+  gap: 10px;
 }
 
 .composerInputWrap {
@@ -807,11 +809,16 @@
 .composerInput {
   width: 100%;
   min-width: 0;
+  min-height: 56px;
+  max-height: 144px;
   padding: 16px 112px 16px 18px;
   border: 1px solid rgba(15, 23, 42, 0.1);
   border-radius: 18px;
   outline: none;
   background: rgba(255, 255, 255, 0.92);
+  resize: none;
+  line-height: 1.45;
+  overflow-y: hidden;
 }
 
 .composerInlineActions {
@@ -831,18 +838,24 @@
 
 .composerButton {
   border: 0;
-  padding: 0 22px;
-  min-width: 138px;
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
+  padding: 0;
   border-radius: 18px;
   background: linear-gradient(135deg, #1f6fff, #13b7a6);
   color: white;
   font-weight: 800;
   box-shadow: 0 16px 28px rgba(31, 111, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .iconButton {
-  width: 54px;
-  min-width: 54px;
+  width: 48px;
+  min-width: 48px;
+  height: 56px;
   padding: 0;
   border: 1px solid rgba(17, 24, 39, 0.12);
   border-radius: 18px;
@@ -909,6 +922,32 @@
 .iconButtonText {
   font-size: 12px;
   font-weight: 800;
+}
+
+.messageQuickAction {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.1);
+  color: rgba(17, 24, 39, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.messageBubbleOwn .messageQuickAction {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.messageBubbleMedia .messageQuickAction {
+  top: 12px;
+  right: 12px;
 }
 
 .secondaryButton {
@@ -1081,16 +1120,23 @@
   }
 
   .composerForm {
-    grid-template-columns: minmax(0, 1fr) 52px auto;
+    grid-template-columns: minmax(0, 1fr) 48px 56px;
   }
 
   .composerButton {
-    min-width: 112px;
-    padding: 0 16px;
+    width: 56px;
+    min-width: 56px;
   }
 
   .composerInput {
-    padding-right: 100px;
+    min-height: 54px;
+    padding: 15px 104px 15px 16px;
+  }
+
+  .iconButton {
+    width: 46px;
+    min-width: 46px;
+    height: 54px;
   }
 
   .messageArea {
@@ -1152,6 +1198,10 @@
 
   .messageTools {
     align-items: flex-start;
+  }
+
+  .messageQuickAction {
+    opacity: 1;
   }
 
   .reactionPickerMenu {
