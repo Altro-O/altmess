@@ -22,6 +22,7 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
 const RING_TIMEOUT_MS = 30000;
+const MAX_MEDIA_UPLOAD_BYTES = 12 * 1024 * 1024;
 const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const DEFAULT_ICE_SERVERS = [
@@ -43,6 +44,10 @@ async function writeDb(data) {
   } catch (error) {
     console.error('Failed to persist state:', error);
   }
+}
+
+async function ensureMediaUploadDir() {
+  await fs.mkdir(MEDIA_UPLOAD_DIR, { recursive: true });
 }
 
 function publicUser(user) {
@@ -141,6 +146,61 @@ function sanitizeMessage(message) {
   };
 }
 
+function buildPublicUploadUrl(relativePath) {
+  const normalized = `/uploads/${relativePath.replace(/\\/g, '/')}`;
+  if (!MEDIA_PUBLIC_BASE_URL) {
+    return normalized;
+  }
+
+  return `${MEDIA_PUBLIC_BASE_URL.replace(/\/$/, '')}${normalized}`;
+}
+
+function getFileExtension(fileName, mimeType) {
+  const explicitExtension = path.extname(String(fileName || '')).slice(1).trim().toLowerCase();
+  if (explicitExtension) {
+    return explicitExtension.slice(0, 12);
+  }
+
+  const subtype = String(mimeType || '').split('/')[1] || 'bin';
+  return subtype.split(';')[0].trim().toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 12) || 'bin';
+}
+
+function sanitizeUploadFileName(fileName) {
+  let normalizedName = String(fileName || 'file');
+
+  try {
+    normalizedName = decodeURIComponent(normalizedName);
+  } catch {
+    normalizedName = String(fileName || 'file');
+  }
+
+  const baseName = path.basename(normalizedName);
+  return baseName.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120) || 'file';
+}
+
+async function storeUploadedMedia(buffer, fileName, mimeType) {
+  const now = new Date();
+  const year = String(now.getUTCFullYear());
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const directory = path.join(MEDIA_UPLOAD_DIR, year, month);
+  const safeFileName = sanitizeUploadFileName(fileName);
+  const extension = getFileExtension(safeFileName, mimeType);
+  const storageKey = path.posix.join(year, month, `${randomUUID()}.${extension}`);
+  const filePath = path.join(directory, path.basename(storageKey));
+
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(filePath, buffer);
+
+  return {
+    fileUrl: buildPublicUploadUrl(storageKey),
+    storageKey,
+    storageKind: 'local',
+    storageStatus: 'ready',
+    uploadedAt: now.toISOString(),
+    originalFileName: safeFileName,
+  };
+}
+
 function resolveStoredMediaPath(fileUrl) {
   const rawUrl = String(fileUrl || '').trim();
 
@@ -176,7 +236,7 @@ function resolveStoredMediaPath(fileUrl) {
 }
 
 async function deleteStoredMediaAttachment(attachment) {
-  if (!attachment?.fileUrl || attachment.isSticker) {
+  if (!attachment?.fileUrl || attachment.isSticker || attachment.storageKind !== 'local') {
     return false;
   }
 
@@ -288,6 +348,7 @@ async function persistCallLog(db, call, actorId) {
 
 app.prepare().then(async () => {
   await loadState();
+  await ensureMediaUploadDir();
 
   const expressApp = express();
   const server = http.createServer(expressApp);
@@ -576,6 +637,11 @@ app.prepare().then(async () => {
   }
 
   expressApp.use(express.json({ limit: '2mb' }));
+  expressApp.use('/uploads', express.static(MEDIA_UPLOAD_DIR, {
+    fallthrough: false,
+    index: false,
+    maxAge: '7d',
+  }));
 
   expressApp.get('/healthz', (req, res) => {
     res.status(200).json({ ok: true });
@@ -694,6 +760,41 @@ app.prepare().then(async () => {
 
     const db = readDb();
     res.json({ messages: getConversationMessages(db, req.user.id, contactId).map(sanitizeMessage) });
+  });
+
+  expressApp.post('/api/uploads', authMiddleware, express.raw({ type: '*/*', limit: `${MAX_MEDIA_UPLOAD_BYTES}b` }), async (req, res) => {
+    const fileName = sanitizeUploadFileName(req.headers['x-file-name']);
+    const mimeType = String(req.headers['content-type'] || 'application/octet-stream').trim() || 'application/octet-stream';
+    const sizeBytes = Number(req.headers['x-file-size'] || req.body?.length || 0);
+
+    if (!req.body || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: 'Пустой файл' });
+      return;
+    }
+
+    if (req.body.length > MAX_MEDIA_UPLOAD_BYTES) {
+      res.status(413).json({ error: 'Файл слишком большой. Пока лимит 12 MB' });
+      return;
+    }
+
+    try {
+      const stored = await storeUploadedMedia(req.body, fileName, mimeType);
+      res.status(201).json({
+        attachment: {
+          fileName,
+          mimeType,
+          sizeBytes,
+          fileUrl: stored.fileUrl,
+          storageKey: stored.storageKey,
+          storageKind: stored.storageKind,
+          storageStatus: stored.storageStatus,
+          uploadedAt: stored.uploadedAt,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to store uploaded media:', error);
+      res.status(500).json({ error: 'Не удалось сохранить файл' });
+    }
   });
 
   expressApp.post('/api/messages/read', authMiddleware, (req, res) => {
@@ -815,6 +916,10 @@ app.prepare().then(async () => {
             fileUrl: String(payload.attachment.fileUrl),
             isSticker: Boolean(payload.attachment.isSticker),
             packKey: payload.attachment.packKey ? String(payload.attachment.packKey) : null,
+            storageKey: payload.attachment.storageKey ? String(payload.attachment.storageKey) : null,
+            storageKind: payload.attachment.storageKind ? String(payload.attachment.storageKind) : (payload.attachment.isSticker ? 'sticker' : 'inline'),
+            storageStatus: payload.attachment.storageStatus ? String(payload.attachment.storageStatus) : 'ready',
+            uploadedAt: payload.attachment.uploadedAt ? String(payload.attachment.uploadedAt) : null,
           }
         : null;
       const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;

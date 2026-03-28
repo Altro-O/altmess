@@ -43,6 +43,10 @@ export interface ChatMessage {
     fileUrl: string;
     isSticker?: boolean;
     packKey?: string;
+    storageKey?: string | null;
+    storageKind?: 'inline' | 'local' | 'sticker' | null;
+    storageStatus?: 'ready' | 'deleted' | 'expired' | null;
+    uploadedAt?: string | null;
   } | null;
   callEvent?: {
     mode: 'audio' | 'video';

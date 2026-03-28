@@ -218,13 +218,58 @@ export default function ChatPage() {
     }
 
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const fileUrl = canvas.toDataURL('image/jpeg', 0.82);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (nextBlob) {
+          resolve(nextBlob);
+          return;
+        }
+
+        reject(new Error('Не удалось подготовить изображение'));
+      }, 'image/jpeg', 0.82);
+    });
 
     return {
-      fileUrl,
+      blob,
       mimeType: 'image/jpeg',
-      sizeBytes: Math.ceil((fileUrl.length * 3) / 4),
+      sizeBytes: blob.size,
     };
+  };
+
+  const uploadAttachment = async (file: File) => {
+    if (!token) {
+      throw new Error('Сессия недействительна');
+    }
+
+    const preparedFile = file.type.startsWith('image/')
+      ? await compressImageFile(file)
+      : {
+          blob: file,
+          mimeType: file.type || 'application/octet-stream',
+          sizeBytes: file.size,
+        };
+
+    const uploadName = file.type.startsWith('image/')
+      ? `${file.name.replace(/\.[^.]+$/, '') || 'image'}.jpg`
+      : file.name;
+
+    const response = await fetch('/api/uploads', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': preparedFile.mimeType,
+        'X-File-Name': encodeURIComponent(uploadName),
+        'X-File-Size': String(preparedFile.sizeBytes),
+      },
+      body: preparedFile.blob,
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.attachment) {
+      throw new Error(data.error || 'Не удалось загрузить файл');
+    }
+
+    return data.attachment as NonNullable<ChatMessage['attachment']>;
   };
 
   const loadSidebar = useCallback(async () => {
@@ -761,25 +806,14 @@ export default function ChatPage() {
     setIsUploadingFile(true);
     setPageError('');
     try {
-      const preparedFile = file.type.startsWith('image/')
-        ? await compressImageFile(file)
-        : {
-            fileUrl: await fileToDataUrl(file),
-            mimeType: file.type || 'application/octet-stream',
-            sizeBytes: file.size,
-          };
+      const uploadedAttachment = await uploadAttachment(file);
 
       socketRef.current.emit(
         'message:send',
         {
           recipientId: activeContact.id,
           kind: 'file',
-          attachment: {
-            fileName: file.name,
-            mimeType: preparedFile.mimeType,
-            sizeBytes: preparedFile.sizeBytes,
-            fileUrl: preparedFile.fileUrl,
-          },
+          attachment: uploadedAttachment,
           replyToMessageId: replyMessage?.id,
         },
         (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
