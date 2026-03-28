@@ -15,6 +15,8 @@ self.addEventListener('push', (event) => {
       url: payload.url || '/dashboard/chat',
     },
     requireInteraction: Boolean(payload.requireInteraction),
+    vibrate: Array.isArray(payload.vibrate) ? payload.vibrate : (payload.data?.type === 'call' ? [250, 150, 250, 150, 450] : [120, 60, 120]),
+    renotify: Boolean(payload.requireInteraction),
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

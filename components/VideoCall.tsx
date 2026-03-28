@@ -37,12 +37,86 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ringtoneAudioContextRef = useRef<AudioContext | null>(null);
+  const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ringtoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearDisconnectTimer = () => {
     if (disconnectTimerRef.current) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+  };
+
+  const stopRingtone = () => {
+    if (ringtoneIntervalRef.current) {
+      clearInterval(ringtoneIntervalRef.current);
+      ringtoneIntervalRef.current = null;
+    }
+
+    if (ringtoneTimeoutRef.current) {
+      clearTimeout(ringtoneTimeoutRef.current);
+      ringtoneTimeoutRef.current = null;
+    }
+  };
+
+  const playTonePattern = async (pattern: Array<{ frequency: number; duration: number; delay?: number }>) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      return;
+    }
+
+    if (!ringtoneAudioContextRef.current) {
+      ringtoneAudioContextRef.current = new AudioContextClass();
+    }
+
+    const context = ringtoneAudioContextRef.current;
+    if (context.state === 'suspended') {
+      await context.resume().catch(() => null);
+    }
+
+    let offset = 0;
+    pattern.forEach((tone) => {
+      offset += tone.delay || 0;
+
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = tone.frequency;
+      gainNode.gain.setValueAtTime(0.0001, context.currentTime + offset);
+      gainNode.gain.exponentialRampToValueAtTime(0.08, context.currentTime + offset + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + offset + tone.duration);
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      oscillator.start(context.currentTime + offset);
+      oscillator.stop(context.currentTime + offset + tone.duration + 0.03);
+      offset += tone.duration;
+    });
+  };
+
+  const startRingtone = (mode: 'incoming' | 'outgoing') => {
+    stopRingtone();
+
+    const pattern = mode === 'incoming'
+      ? [{ frequency: 880, duration: 0.22 }, { frequency: 1174, duration: 0.22, delay: 0.08 }]
+      : [{ frequency: 660, duration: 0.18 }, { frequency: 660, duration: 0.18, delay: 0.28 }];
+
+    const repeatEvery = mode === 'incoming' ? 2400 : 1800;
+    const kick = () => {
+      playTonePattern(pattern).catch(() => null);
+      if (mode === 'incoming' && typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate?.([160, 120, 220]);
+      }
+    };
+
+    kick();
+    ringtoneTimeoutRef.current = setTimeout(() => {
+      ringtoneIntervalRef.current = setInterval(kick, repeatEvery);
+    }, repeatEvery);
   };
 
   const ensureRemotePlayback = async () => {
@@ -78,6 +152,26 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   }, [call]);
 
   useEffect(() => {
+    if (phase === 'incoming') {
+      startRingtone('incoming');
+      return;
+    }
+
+    if (phase === 'outgoing' || phase === 'connecting') {
+      startRingtone('outgoing');
+      return;
+    }
+
+    stopRingtone();
+  }, [phase]);
+
+  useEffect(() => () => {
+    stopRingtone();
+    ringtoneAudioContextRef.current?.close().catch(() => null);
+    ringtoneAudioContextRef.current = null;
+  }, []);
+
+  useEffect(() => {
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = localStream;
     }
@@ -103,6 +197,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
   const closeResources = () => {
     clearDisconnectTimer();
+    stopRingtone();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
 

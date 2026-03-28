@@ -1017,6 +1017,7 @@ app.prepare().then(async () => {
           title: currentUser.displayName || currentUser.username,
           body: content.length > 120 ? `${content.slice(0, 117)}...` : content,
           tag: `message-${currentUser.id}`,
+          vibrate: [120, 60, 120],
           url: `/dashboard/chat?contactId=${currentUser.id}`,
           data: {
             type: 'message',
@@ -1161,6 +1162,7 @@ app.prepare().then(async () => {
           body: `${currentUser.displayName || currentUser.username} звонит вам. Нажмите, чтобы открыть чат.`,
           tag: `call-${call.id}`,
           requireInteraction: true,
+          vibrate: [250, 150, 250, 150, 450],
           url: `/dashboard/chat?contactId=${currentUser.id}&incomingCallId=${call.id}&incomingCallMode=${mode}`,
           data: {
             type: 'call',
