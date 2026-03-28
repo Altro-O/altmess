@@ -864,6 +864,11 @@
   gap: 8px;
 }
 
+.quoteEditorActions .smallButton {
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+  color: white;
+}
+
 .composerForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
