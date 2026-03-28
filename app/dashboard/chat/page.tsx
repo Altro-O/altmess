@@ -1122,7 +1122,9 @@ export default function ChatPage() {
                                   <span className={styles.replyText}>{getReplySnippet(message.replyTo)}</span>
                                 </button>
                               ) : null}
-                              {isVoiceMessage && message.voice ? (
+                              {message.deletedAt ? (
+                                <p className={`${styles.messageContent} ${styles.messageDeleted}`}>{message.content}</p>
+                              ) : isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
                               ) : isStickerMessage && message.attachment ? (
                                 <button type="button" className={styles.stickerCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
@@ -1142,7 +1144,7 @@ export default function ChatPage() {
                                   <span className={styles.fileAction}>Открыть</span>
                                 </a>
                               ) : (
-                                <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
+                                <p className={styles.messageContent}>{message.content}</p>
                               )}
                               <div className={`${isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer} ${isPhotoMessage ? ownMessage ? styles.messageMetaMediaOwn : styles.messageMetaMediaPeer : ''}`}>
                                 <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>

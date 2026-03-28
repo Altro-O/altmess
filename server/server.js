@@ -5,6 +5,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { randomUUID } = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
 const webpush = require('web-push');
 const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
 
@@ -20,6 +22,8 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
 const RING_TIMEOUT_MS = 30000;
+const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
+const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
@@ -131,7 +135,67 @@ function sanitizeMessage(message) {
   return {
     ...message,
     content: 'Сообщение удалено',
+    voice: null,
+    attachment: null,
+    reactions: [],
   };
+}
+
+function resolveStoredMediaPath(fileUrl) {
+  const rawUrl = String(fileUrl || '').trim();
+
+  if (!rawUrl || rawUrl.startsWith('data:')) {
+    return null;
+  }
+
+  let pathname = rawUrl;
+
+  try {
+    if (MEDIA_PUBLIC_BASE_URL && rawUrl.startsWith(MEDIA_PUBLIC_BASE_URL)) {
+      pathname = new URL(rawUrl).pathname;
+    } else if (/^https?:\/\//i.test(rawUrl)) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  const normalizedPath = pathname.replace(/\\/g, '/');
+  if (!normalizedPath.startsWith('/uploads/')) {
+    return null;
+  }
+
+  const relativePath = normalizedPath.slice('/uploads/'.length);
+  const targetPath = path.resolve(MEDIA_UPLOAD_DIR, relativePath);
+
+  if (!targetPath.startsWith(MEDIA_UPLOAD_DIR)) {
+    return null;
+  }
+
+  return targetPath;
+}
+
+async function deleteStoredMediaAttachment(attachment) {
+  if (!attachment?.fileUrl || attachment.isSticker) {
+    return false;
+  }
+
+  const filePath = resolveStoredMediaPath(attachment.fileUrl);
+  if (!filePath) {
+    return false;
+  }
+
+  try {
+    await fs.unlink(filePath);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return false;
+    }
+
+    console.error('Failed to delete stored media:', error);
+    return false;
+  }
 }
 
 function buildReplyPreview(message) {
@@ -862,7 +926,7 @@ app.prepare().then(async () => {
       callback?.({ ok: true, message: payload });
     });
 
-    socket.on('message:delete', ({ messageId }, callback) => {
+    socket.on('message:delete', async ({ messageId }, callback) => {
       const db = readDb();
       const message = db.messages.find((entry) => entry.id === String(messageId));
 
@@ -871,9 +935,10 @@ app.prepare().then(async () => {
         return;
       }
 
+      await deleteStoredMediaAttachment(message.attachment);
       message.deletedAt = new Date().toISOString();
       message.updatedAt = message.deletedAt;
-      writeDb(db);
+      await writeDb(db);
 
       const payload = sanitizeMessage(message);
       emitToUser(message.senderId, 'message:update', payload);
