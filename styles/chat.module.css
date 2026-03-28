@@ -410,14 +410,17 @@
 
 .imageCard {
   display: grid;
-  gap: 8px;
-  max-width: min(280px, 100%);
+  gap: 0;
+  width: min(320px, 100%);
   padding: 0;
   border: 0;
   background: transparent;
   color: inherit;
   text-decoration: none;
   text-align: left;
+  overflow: hidden;
+  border-radius: 22px;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
 }
 
 .stickerCard {
@@ -437,15 +440,11 @@
 .imagePreview {
   display: block;
   width: 100%;
-  max-height: 320px;
+  max-height: 360px;
+  aspect-ratio: auto;
   object-fit: cover;
-  border-radius: 18px;
+  border-radius: 22px;
   background: rgba(15, 23, 42, 0.06);
-}
-
-.imageCaption {
-  font-size: 12px;
-  opacity: 0.82;
 }
 
 .imageLightbox {
@@ -468,36 +467,35 @@
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
 }
 
-.imageLightboxCaption {
-  color: white;
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .fileCard {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 220px;
   padding: 12px 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.16);
   color: inherit;
   text-decoration: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .messageBubblePeer .fileCard,
 .messageBubbleSystem .fileCard {
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
 }
 
 .fileIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  min-width: 48px;
+  height: 48px;
+  padding: 0 8px;
+  border-radius: 15px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.2);
+  letter-spacing: 0.08em;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -509,6 +507,8 @@
 .fileMeta {
   display: grid;
   min-width: 0;
+  gap: 2px;
+  flex: 1;
 }
 
 .fileName {
@@ -521,6 +521,52 @@
 .fileInfo {
   font-size: 12px;
   opacity: 0.78;
+}
+
+.fileAction {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.messageBubblePeer .fileAction,
+.messageBubbleSystem .fileAction {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.messageBubbleMedia {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.messageMetaMediaOwn,
+.messageMetaMediaPeer {
+  margin-top: 8px;
+  padding: 0 6px;
+}
+
+.messageMetaMediaOwn {
+  justify-content: flex-end;
+}
+
+.messageMetaMediaPeer {
+  justify-content: flex-start;
+}
+
+.messageBubbleMedia .messageTimeOwn,
+.messageBubbleMedia .messageEditedOwn,
+.messageBubbleMedia .messageStatus {
+  color: #667085;
+}
+
+.messageBubbleMedia.messageBubbleHighlighted {
+  box-shadow: 0 0 0 3px rgba(31, 111, 255, 0.18);
+  border-radius: 26px;
 }
 
 .reactionRow {
@@ -1075,6 +1121,11 @@
     max-width: min(82vw, 100%);
     padding: 12px 14px 8px;
     border-radius: 22px;
+  }
+
+  .messageBubbleMedia {
+    max-width: min(82vw, 100%);
+    padding: 0;
   }
 
   .messageContent {

@@ -105,6 +105,28 @@ function getAvatarLabel(contact: Contact) {
   return (contact.displayName || contact.username).slice(0, 2).toUpperCase();
 }
 
+function getFileBadgeLabel(fileName: string, mimeType?: string) {
+  const extension = fileName.split('.').pop()?.trim().toUpperCase();
+
+  if (extension && extension.length <= 5) {
+    return extension;
+  }
+
+  if (mimeType?.startsWith('audio/')) {
+    return 'AUDIO';
+  }
+
+  if (mimeType?.startsWith('video/')) {
+    return 'VIDEO';
+  }
+
+  if (mimeType?.includes('pdf')) {
+    return 'PDF';
+  }
+
+  return 'FILE';
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1054,13 +1076,17 @@ export default function ChatPage() {
                     const isFileMessage = message.kind === 'file';
                     const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
                     const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
+                    const isPhotoMessage = isImageMessage && !isStickerMessage;
+                    const fileBadgeLabel = message.attachment
+                      ? getFileBadgeLabel(message.attachment.fileName, message.attachment.mimeType)
+                      : 'FILE';
 
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
                         <div
                           ref={ownMessage ? undefined : (node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
-                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
+                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${isPhotoMessage ? styles.messageBubbleMedia : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
                           onContextMenu={(event) => {
                             if (message.deletedAt || isCallEvent) {
                               return;
@@ -1105,20 +1131,20 @@ export default function ChatPage() {
                               ) : isImageMessage && message.attachment ? (
                                 <button type="button" className={styles.imageCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
                                   <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.imagePreview} loading="lazy" />
-                                  <span className={styles.imageCaption}>{message.attachment.fileName}</span>
                                 </button>
                               ) : isFileMessage && message.attachment ? (
                                 <a href={message.attachment.fileUrl} download={message.attachment.fileName} target="_blank" rel="noreferrer" className={styles.fileCard}>
-                                  <span className={styles.fileIcon}>+</span>
+                                  <span className={styles.fileIcon}>{fileBadgeLabel}</span>
                                   <span className={styles.fileMeta}>
                                     <span className={styles.fileName}>{message.attachment.fileName}</span>
                                     <span className={styles.fileInfo}>{formatFileSize(message.attachment.sizeBytes)}</span>
                                   </span>
+                                  <span className={styles.fileAction}>Открыть</span>
                                 </a>
                               ) : (
                                 <p className={`${styles.messageContent} ${message.deletedAt ? styles.messageDeleted : ''}`}>{message.content}</p>
                               )}
-                              <div className={isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer}>
+                              <div className={`${isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer} ${isPhotoMessage ? ownMessage ? styles.messageMetaMediaOwn : styles.messageMetaMediaPeer : ''}`}>
                                 <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
                                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
@@ -1248,7 +1274,6 @@ export default function ChatPage() {
       {previewImage ? (
         <button type="button" className={styles.imageLightbox} onClick={() => setPreviewImage(null)}>
           <img src={previewImage.src} alt={previewImage.name} className={styles.imageLightboxMedia} />
-          <span className={styles.imageLightboxCaption}>{previewImage.name}</span>
         </button>
       ) : null}
     </>
