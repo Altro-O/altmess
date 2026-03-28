@@ -306,15 +306,20 @@ async function uploadToMediaUpstream(req, res, fileName, mimeType, sizeBytes) {
   return true;
 }
 
-function buildReplyPreview(message) {
+function buildReplyPreview(message, quoteText = '') {
   if (!message) {
     return null;
   }
+
+  const quote = typeof quoteText === 'string' && quoteText.trim()
+    ? quoteText.trim().slice(0, 280)
+    : null;
 
   return {
     id: message.id,
     senderId: message.senderId,
     content: message.kind === 'voice' ? 'Голосовое сообщение' : message.kind === 'file' ? 'Файл' : sanitizeMessage(message).content,
+    quote,
     kind: message.kind || 'text',
   };
 }
@@ -980,6 +985,7 @@ app.prepare().then(async () => {
           }
         : null;
       const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;
+      const replyQuote = typeof payload?.replyQuote === 'string' ? payload.replyQuote.trim().slice(0, 280) : '';
       const db = readDb();
       const recipient = db.users.find((user) => user.id === recipientId);
       const replyToMessage = replyToMessageId ? db.messages.find((entry) => entry.id === replyToMessageId) : null;
@@ -998,7 +1004,8 @@ app.prepare().then(async () => {
         kind,
         voice,
         attachment,
-        replyTo: buildReplyPreview(replyToMessage),
+        replyQuote: replyQuote || null,
+        replyTo: buildReplyPreview(replyToMessage, replyQuote),
         status: 'sent',
         deliveredAt: null,
         readAt: null,

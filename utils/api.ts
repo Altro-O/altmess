@@ -26,6 +26,7 @@ export interface ChatMessage {
     id: string;
     senderId: string;
     content: string;
+    quote?: string | null;
     kind?: 'text' | 'call' | 'voice' | 'file';
   } | null;
   reactions?: Array<{

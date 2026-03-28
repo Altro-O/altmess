@@ -67,6 +67,10 @@ function getReplySnippet(message?: ChatMessage['replyTo'] | null) {
     return '';
   }
 
+  if (message.quote?.trim()) {
+    return message.quote.length > 84 ? `${message.quote.slice(0, 84)}...` : message.quote;
+  }
+
   if (message.kind === 'voice') {
     return 'Голосовое сообщение';
   }
@@ -145,6 +149,9 @@ export default function ChatPage() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
+  const [replyQuote, setReplyQuote] = useState('');
+  const [quoteDraft, setQuoteDraft] = useState('');
+  const [showQuoteEditor, setShowQuoteEditor] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
     { urls: ['stun:stun.l.google.com:19302'] },
@@ -170,6 +177,7 @@ export default function ChatPage() {
   const voiceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const quoteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
 
@@ -633,7 +641,7 @@ export default function ChatPage() {
     }
 
     const content = inputText.trim();
-    socketRef.current.emit('message:send', { recipientId: activeContact.id, content, replyToMessageId: replyMessage?.id }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+    socketRef.current.emit('message:send', { recipientId: activeContact.id, content, replyToMessageId: replyMessage?.id, replyQuote }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
       if (!response.ok || !response.message) {
         setPageError(response.error || 'Не удалось отправить сообщение');
         return;
@@ -650,6 +658,9 @@ export default function ChatPage() {
       });
       setInputText('');
       setReplyMessage(null);
+      setReplyQuote('');
+      setQuoteDraft('');
+      setShowQuoteEditor(false);
       setShowEmojiPicker(false);
       if (composerTextareaRef.current) {
         composerTextareaRef.current.style.height = '0px';
@@ -674,6 +685,44 @@ export default function ChatPage() {
       event.preventDefault();
       submitMessage(event);
     }
+  };
+
+  const beginReply = (message: ChatMessage) => {
+    setReplyMessage(message);
+    setReplyQuote('');
+    setQuoteDraft(message.kind === 'text' ? message.content : '');
+    setShowQuoteEditor(false);
+    setActionMessageId(null);
+  };
+
+  const openQuoteEditor = () => {
+    if (!replyMessage || replyMessage.kind !== 'text' || replyMessage.deletedAt) {
+      return;
+    }
+
+    setQuoteDraft(replyQuote || replyMessage.content);
+    setShowQuoteEditor(true);
+    requestAnimationFrame(() => {
+      quoteTextareaRef.current?.focus();
+      quoteTextareaRef.current?.select();
+    });
+  };
+
+  const applyQuoteSelection = () => {
+    const textarea = quoteTextareaRef.current;
+    const selectedText = textarea
+      ? textarea.value.slice(textarea.selectionStart, textarea.selectionEnd).trim()
+      : '';
+    const nextQuote = (selectedText || quoteDraft).trim().slice(0, 280);
+    setReplyQuote(nextQuote);
+    setShowQuoteEditor(false);
+  };
+
+  const clearReply = () => {
+    setReplyMessage(null);
+    setReplyQuote('');
+    setQuoteDraft('');
+    setShowQuoteEditor(false);
   };
 
   const appendEmoji = (emoji: string) => {
@@ -756,6 +805,7 @@ export default function ChatPage() {
         kind: 'voice',
         voice: result,
         replyToMessageId: replyMessage?.id,
+        replyQuote,
       },
       (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
         if (!response.ok || !response.message) {
@@ -773,6 +823,9 @@ export default function ChatPage() {
           return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
         });
         setReplyMessage(null);
+        setReplyQuote('');
+        setQuoteDraft('');
+        setShowQuoteEditor(false);
         setVoiceSeconds(0);
       },
     );
@@ -838,6 +891,7 @@ export default function ChatPage() {
           kind: 'file',
           attachment: uploadedAttachment,
           replyToMessageId: replyMessage?.id,
+          replyQuote,
         },
         (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
           if (!response.ok || !response.message) {
@@ -855,6 +909,9 @@ export default function ChatPage() {
             return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
           });
           setReplyMessage(null);
+          setReplyQuote('');
+          setQuoteDraft('');
+          setShowQuoteEditor(false);
         },
       );
     } catch (error) {
@@ -888,6 +945,7 @@ export default function ChatPage() {
           packKey,
         },
         replyToMessageId: replyMessage?.id,
+        replyQuote,
       },
       (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
         if (!response.ok || !response.message) {
@@ -905,6 +963,9 @@ export default function ChatPage() {
           return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
         });
         setReplyMessage(null);
+        setReplyQuote('');
+        setQuoteDraft('');
+        setShowQuoteEditor(false);
         setShowStickerPicker(false);
       },
     );
@@ -1232,7 +1293,7 @@ export default function ChatPage() {
                                       <button key={emoji} type="button" className={styles.reactionMenuEmoji} onClick={() => { toggleReaction(message.id, emoji); setActionMessageId(null); }}>{emoji}</button>
                                     ))}
                                   </div>
-                                  <button type="button" className={styles.messageToolPrimary} onClick={() => { setReplyMessage(message); setActionMessageId(null); }}>Ответить</button>
+                                  <button type="button" className={styles.messageToolPrimary} onClick={() => beginReply(message)}>Ответить</button>
                                   {ownMessage && message.kind !== 'voice' && message.kind !== 'file' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
                                   {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
                                 </div>
@@ -1266,11 +1327,23 @@ export default function ChatPage() {
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
                 {replyMessage ? (
                   <div className={styles.replyBanner}>
-                    <div>
+                    <button type="button" className={styles.replyBannerBody} onClick={openQuoteEditor} disabled={replyMessage.kind !== 'text' || !!replyMessage.deletedAt}>
                       <strong className={styles.replyBannerTitle}>Ответ на сообщение</strong>
-                      <p className={styles.replyBannerText}>{getMessagePreview(replyMessage)}</p>
+                      <p className={styles.replyBannerText}>{replyQuote || getMessagePreview(replyMessage)}</p>
+                      {replyMessage.kind === 'text' && !replyMessage.deletedAt ? <span className={styles.replyBannerHint}>{replyQuote ? 'Нажмите, чтобы изменить цитату' : 'Нажмите, чтобы выбрать цитату'}</span> : null}
+                    </button>
+                    <button type="button" className={styles.replyBannerClose} onClick={clearReply}>X</button>
+                  </div>
+                ) : null}
+                {showQuoteEditor && replyMessage?.kind === 'text' ? (
+                  <div className={styles.quoteEditor}>
+                    <strong className={styles.quoteEditorTitle}>Выберите фрагмент для цитаты</strong>
+                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста, как в Telegram. Если ничего не выделите, возьмется весь текущий текст.</p>
+                    <textarea ref={quoteTextareaRef} value={quoteDraft} onChange={(event) => setQuoteDraft(event.target.value)} className={styles.quoteEditorInput} rows={4} />
+                    <div className={styles.quoteEditorActions}>
+                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setShowQuoteEditor(false); }}>Без цитаты</button>
+                      <button type="button" className={styles.smallButton} onClick={applyQuoteSelection}>Использовать</button>
                     </div>
-                    <button type="button" className={styles.replyBannerClose} onClick={() => setReplyMessage(null)}>X</button>
                   </div>
                 ) : null}
                 {showEmojiPicker ? (
