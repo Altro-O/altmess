@@ -169,6 +169,31 @@ function sortContactsWithPins(contacts: Contact[], pinnedIds: string[]) {
   });
 }
 
+function getMessageDayKey(dateValue: string) {
+  const date = new Date(dateValue);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function getTimelineDateLabel(dateValue: string) {
+  const target = new Date(dateValue);
+  const now = new Date();
+  const todayKey = getMessageDayKey(now.toISOString());
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  const yesterdayKey = getMessageDayKey(yesterday.toISOString());
+  const targetKey = getMessageDayKey(dateValue);
+
+  if (targetKey === todayKey) {
+    return 'Сегодня';
+  }
+
+  if (targetKey === yesterdayKey) {
+    return 'Вчера';
+  }
+
+  return target.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -732,6 +757,45 @@ export default function ChatPage() {
     () => messages.filter((message) => message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/') && !message.attachment?.isSticker && !isAttachmentExpired(message) && !message.deletedAt),
     [messages],
   );
+
+  const groupedGalleryImages = useMemo(() => {
+    const groups = new Map<string, { label: string; items: ChatMessage[] }>();
+
+    galleryImages.forEach((message) => {
+      const key = getMessageDayKey(message.createdAt);
+      const existing = groups.get(key);
+      if (existing) {
+        existing.items.push(message);
+        return;
+      }
+
+      groups.set(key, {
+        label: getTimelineDateLabel(message.createdAt),
+        items: [message],
+      });
+    });
+
+    return Array.from(groups.entries())
+      .sort((first, second) => new Date(second[1].items[0].createdAt).getTime() - new Date(first[1].items[0].createdAt).getTime())
+      .map(([key, value]) => ({ key, ...value }));
+  }, [galleryImages]);
+
+  const timelineItems = useMemo(() => {
+    const items: Array<{ type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage }> = [];
+    let currentDayKey = '';
+
+    visibleMessages.forEach((message) => {
+      const dayKey = getMessageDayKey(message.createdAt);
+      if (dayKey !== currentDayKey) {
+        currentDayKey = dayKey;
+        items.push({ type: 'date', key: `date-${dayKey}`, label: getTimelineDateLabel(message.createdAt) });
+      }
+
+      items.push({ type: 'message', key: message.id, message });
+    });
+
+    return items;
+  }, [visibleMessages]);
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
 
@@ -1426,7 +1490,16 @@ export default function ChatPage() {
               <div ref={messageAreaRef} className={`${styles.messageArea} ${isDragOver ? styles.messageAreaDragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={(event) => event.preventDefault()} onDragLeave={handleDragLeave} onDrop={handleDropFiles}>
                 {isDragOver ? <div className={styles.dropOverlay}>Отпустите файлы, чтобы отправить в чат</div> : null}
                 <div className={styles.messageStack}>
-                  {visibleMessages.map((message) => {
+                  {timelineItems.map((item) => {
+                    if (item.type === 'date') {
+                      return (
+                        <div key={item.key} className={styles.timelineDateRow}>
+                          <div className={styles.timelineDateBadge}>{item.label}</div>
+                        </div>
+                      );
+                    }
+
+                    const { message } = item;
                     const ownMessage = message.senderId === user.id;
                     const isEditing = editingMessageId === message.id;
                     const isCallEvent = message.kind === 'call';
@@ -1730,12 +1803,24 @@ export default function ChatPage() {
               <strong>Галерея</strong>
               <span>{galleryImages.length}</span>
             </div>
-            {galleryImages.length ? (
-              <div className={styles.galleryGrid}>
-                {galleryImages.map((message) => (
-                  <button key={message.id} type="button" className={styles.galleryThumb} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
-                    <img src={message.attachment!.fileUrl} alt={message.attachment!.fileName} className={styles.galleryThumbImage} loading="lazy" />
-                  </button>
+            {groupedGalleryImages.length ? (
+              <div className={styles.galleryGroups}>
+                {groupedGalleryImages.map((group) => (
+                  <section key={group.key} className={styles.galleryGroup}>
+                    <div className={styles.galleryGroupHeader}>{group.label}</div>
+                    <div className={styles.galleryGrid}>
+                      {group.items.map((message) => (
+                        <div key={message.id} className={styles.galleryCard}>
+                          <button type="button" className={styles.galleryThumb} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
+                            <img src={message.attachment!.fileUrl} alt={message.attachment!.fileName} className={styles.galleryThumbImage} loading="lazy" />
+                          </button>
+                          <button type="button" className={styles.galleryJumpButton} onClick={() => { setShowDialogProfile(false); jumpToMessage(message.id); }}>
+                            Перейти к сообщению
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             ) : <p className={styles.galleryEmpty}>Пока нет изображений в этом диалоге.</p>}

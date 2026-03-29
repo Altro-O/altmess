@@ -342,6 +342,21 @@
   justify-content: center;
 }
 
+.timelineDateRow {
+  display: flex;
+  justify-content: center;
+}
+
+.timelineDateBadge {
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
 .messageBubbleOwn,
 .messageBubblePeer,
 .messageBubbleSystem {
@@ -1418,6 +1433,27 @@
   gap: 10px;
 }
 
+.galleryGroups {
+  display: grid;
+  gap: 18px;
+}
+
+.galleryGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.galleryGroupHeader {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.galleryCard {
+  display: grid;
+  gap: 6px;
+}
+
 .galleryThumb {
   aspect-ratio: 1;
   border: 0;
@@ -1432,6 +1468,16 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.galleryJumpButton {
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 @media (max-width: 960px) {
