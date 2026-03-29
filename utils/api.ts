@@ -6,6 +6,8 @@ export interface AuthUser {
   displayName?: string;
   bio?: string;
   avatarUrl?: string;
+  avatarStorageKey?: string | null;
+  avatarStorageKind?: 'local' | 'vps' | null;
   avatarColor?: string;
   lastSeenAt?: string | null;
 }

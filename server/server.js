@@ -65,6 +65,8 @@ function publicUser(user) {
     displayName: user.displayName || user.username,
     bio: user.bio || '',
     avatarUrl: user.avatarUrl || '',
+    avatarStorageKey: user.avatarStorageKey || null,
+    avatarStorageKind: user.avatarStorageKind || null,
     avatarColor: user.avatarColor || 'ocean',
     lastSeenAt: user.lastSeenAt || null,
   };
@@ -282,6 +284,18 @@ async function deleteStoredMediaAttachment(attachment) {
     console.error('Failed to delete stored media:', error);
     return false;
   }
+}
+
+async function deleteStoredAvatar(user) {
+  if (!user?.avatarUrl || !user?.avatarStorageKind || !user?.avatarStorageKey) {
+    return false;
+  }
+
+  return deleteStoredMediaAttachment({
+    fileUrl: user.avatarUrl,
+    storageKind: user.avatarStorageKind,
+    storageKey: user.avatarStorageKey,
+  });
 }
 
 async function uploadToMediaUpstream(req, res, fileName, mimeType, sizeBytes) {
@@ -771,7 +785,7 @@ app.prepare().then(async () => {
     res.json({ user: req.user, iceServers: getIceServers() });
   });
 
-  expressApp.patch('/api/profile', authMiddleware, (req, res) => {
+  expressApp.patch('/api/profile', authMiddleware, async (req, res) => {
     const db = readDb();
     const user = db.users.find((entry) => entry.id === req.user.id);
 
@@ -783,16 +797,25 @@ app.prepare().then(async () => {
     const nextDisplayName = String(req.body?.displayName || user.displayName || user.username).trim();
     const nextBio = String(req.body?.bio || '').trim();
     const nextAvatarUrl = String(req.body?.avatarUrl || '').trim();
+    const nextAvatarStorageKey = req.body?.avatarStorageKey ? String(req.body.avatarStorageKey) : null;
+    const nextAvatarStorageKind = req.body?.avatarStorageKind ? String(req.body.avatarStorageKind) : null;
     const nextAvatarColor = String(req.body?.avatarColor || user.avatarColor || 'ocean');
+
+    const avatarChanged = user.avatarUrl && user.avatarUrl !== nextAvatarUrl;
+    if (avatarChanged) {
+      await deleteStoredAvatar(user);
+    }
 
     user.displayName = nextDisplayName.slice(0, 32) || user.username;
     user.bio = nextBio.slice(0, 90);
     user.avatarUrl = nextAvatarUrl.slice(0, 500);
+    user.avatarStorageKey = nextAvatarStorageKey;
+    user.avatarStorageKind = nextAvatarStorageKind === 'local' || nextAvatarStorageKind === 'vps' ? nextAvatarStorageKind : null;
     user.avatarColor = ['ocean', 'mint', 'sunset', 'berry', 'slate'].includes(nextAvatarColor)
       ? nextAvatarColor
       : 'ocean';
 
-    writeDb(db);
+    await writeDb(db);
     res.json({ user: publicUser(user) });
   });
 
