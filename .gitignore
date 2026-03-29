@@ -7,3 +7,5 @@ server/data/db.json
 tsconfig.tsbuildinfo
 next-debug.log
 server-smoke.log
+project.private.md
+ops.private.md

@@ -2,30 +2,30 @@
 
 PWA-first realtime messenger for private communication between browsers and mobile devices.
 
-## Progress
+## Status
 
 `[███████████████████░░░░░░░] 70%`
 
-- `Core messaging` - done
-- `Media storage on VPS` - done
-- `Profile avatars and crop` - done
-- `Sticker / emoji UX` - done
-- `PWA and mobile polish` - mostly done
-- `One-to-one call stability` - in progress
-- `Group chats` - planned
-- `Group calls` - planned
+| Area | Status |
+| --- | --- |
+| Core messaging | Done |
+| Media uploads and VPS storage | Done |
+| Profile avatars and crop | Done |
+| Stickers / emoji UX | Done |
+| PWA and mobile UX | Mostly done |
+| One-to-one call resilience | In progress |
+| Group chats | Planned |
+| Group calls | Planned |
 
-## What it already does
+## Highlights
 
-- registration and login
-- one-to-one realtime chat
+- realtime one-to-one chat
 - sent / delivered / read states
 - replies, quoting, reactions, emoji, stickers
-- voice messages
-- file and image sharing
+- voice messages and file sharing
 - multi-upload with progress
 - desktop drag/drop uploads
-- grouped media gallery in dialogs
+- grouped media gallery inside dialogs
 - pinned chats and drafts
 - profile editing with avatar upload / crop / delete
 - audio and video calls
@@ -40,18 +40,18 @@ PWA-first realtime messenger for private communication between browsers and mobi
 - Node.js custom server
 - Socket.IO
 - Neon Postgres
-- self-hosted coturn
-- VPS media storage
+- self-hosted TURN
+- external media storage service
 
-## Runtime architecture
+## Architecture Overview
 
 - `Render` hosts the main application
 - `Neon` stores app state and metadata
 - separate infrastructure is used for TURN and uploaded media storage
 
-## Public demo URL
+## Public App
 
-- app: `https://altmess.onrender.com`
+- `https://altmess.onrender.com`
 
 ## Local development
 
@@ -67,7 +67,7 @@ npm run build
 npm start
 ```
 
-## Important env vars
+## Example env
 
 ```env
 JWT_SECRET=change-me
@@ -82,14 +82,13 @@ MEDIA_UPSTREAM_TOKEN=change-me
 MEDIA_PUBLIC_BASE_URL=https://media.example.com
 ```
 
-## Media cleanup policy
+## Media retention
 
 Uploaded media is cleaned by a scheduled retention policy.
 
 - orphaned files are removed first
 - old attachments can be expired when storage pressure grows
-
-Expired files are shown in chat as placeholders instead of broken links.
+- expired files are shown in chat as placeholders instead of broken links
 
 ## Current priorities
 
@@ -99,10 +98,34 @@ Expired files are shown in chat as placeholders instead of broken links.
 4. Group chats
 5. Group call architecture
 
-## Screenshots / presentation ideas
+## Roadmap snapshot
 
-Good GitHub follow-up improvements later:
+### Done
+- realtime chat foundation
+- replies / quotes / reactions / voice messages
+- VPS-backed uploads and cleanup flow
+- avatar upload and crop flow
+- grouped gallery and media navigation
+- sticker packs with frequent ordering
+
+### In progress
+- one-to-one call resilience on weak mobile networks
+- mobile and PWA polish
+
+### Planned
+- multi-select and forwarding
+- server-side pinned chats
+- group chats
+- group call architecture
+
+## Repository notes
+
+- public handoff summary: `project.md`
+- current task list: `task.md`
+- deploy notes: `DEPLOYMENT.md`
+
+## Presentation follow-ups
 
 - add screenshots or GIFs for desktop/mobile chat
-- add small architecture diagram
-- add feature matrix for `done / in progress / planned`
+- add a small architecture diagram
+- add a visual feature roadmap block
