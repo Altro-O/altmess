@@ -16,6 +16,12 @@ type UploadedAvatar = {
   avatarStorageKind?: 'local' | 'vps' | null;
 };
 
+type CropMetrics = {
+  naturalWidth: number;
+  naturalHeight: number;
+  baseScale: number;
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -38,6 +44,9 @@ export default function ProfilePage() {
   const [isDraggingCrop, setIsDraggingCrop] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; cropX: number; cropY: number } | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const cropViewportRef = useRef<HTMLDivElement | null>(null);
+  const [cropViewportSize, setCropViewportSize] = useState(320);
+  const [cropMetrics, setCropMetrics] = useState<CropMetrics | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -64,10 +73,47 @@ export default function ProfilePage() {
     }
   }, [cropSource]);
 
+  useEffect(() => {
+    const updateViewportSize = () => {
+      const width = cropViewportRef.current?.getBoundingClientRect().width;
+      if (width) {
+        setCropViewportSize(width);
+      }
+    };
+
+    updateViewportSize();
+    window.addEventListener('resize', updateViewportSize);
+    return () => window.removeEventListener('resize', updateViewportSize);
+  }, [cropSource]);
+
+  const clampCropPosition = (nextX: number, nextY: number, nextZoom = cropZoom, nextMetrics = cropMetrics) => {
+    if (!nextMetrics) {
+      return { x: nextX, y: nextY };
+    }
+
+    const renderedWidth = nextMetrics.naturalWidth * nextMetrics.baseScale * nextZoom;
+    const renderedHeight = nextMetrics.naturalHeight * nextMetrics.baseScale * nextZoom;
+    const maxOffsetX = Math.max(0, (renderedWidth - cropViewportSize) / 2);
+    const maxOffsetY = Math.max(0, (renderedHeight - cropViewportSize) / 2);
+
+    return {
+      x: clamp(nextX, -maxOffsetX, maxOffsetX),
+      y: clamp(nextY, -maxOffsetY, maxOffsetY),
+    };
+  };
+
   const cropTransform = useMemo(
-    () => ({ transform: `translate(${cropPosition.x}px, ${cropPosition.y}px) scale(${cropZoom})` }),
-    [cropPosition.x, cropPosition.y, cropZoom],
+    () => ({ transform: `translate(${cropPosition.x}px, ${cropPosition.y}px) scale(${(cropMetrics?.baseScale || 1) * cropZoom})` }),
+    [cropMetrics?.baseScale, cropPosition.x, cropPosition.y, cropZoom],
   );
+
+  const previewTransform = useMemo(() => {
+    const previewSize = 96;
+    const ratio = previewSize / cropViewportSize;
+    return {
+      transform: `translate(${cropPosition.x * ratio}px, ${cropPosition.y * ratio}px) scale(${((cropMetrics?.baseScale || 1) * cropZoom) * ratio})`,
+    };
+  }, [cropMetrics?.baseScale, cropPosition.x, cropPosition.y, cropViewportSize, cropZoom]);
 
   const uploadAvatarBlob = async (blob: Blob, fileName: string): Promise<UploadedAvatar> => {
     if (!token) {
@@ -113,10 +159,11 @@ export default function ProfilePage() {
       return;
     }
 
-    const renderedWidth = image.naturalWidth * cropZoom;
-    const renderedHeight = image.naturalHeight * cropZoom;
-    const drawX = (AVATAR_SIZE - renderedWidth) / 2 + cropPosition.x;
-    const drawY = (AVATAR_SIZE - renderedHeight) / 2 + cropPosition.y;
+    const viewportRatio = AVATAR_SIZE / cropViewportSize;
+    const renderedWidth = image.naturalWidth * (cropMetrics?.baseScale || 1) * cropZoom * viewportRatio;
+    const renderedHeight = image.naturalHeight * (cropMetrics?.baseScale || 1) * cropZoom * viewportRatio;
+    const drawX = (AVATAR_SIZE - renderedWidth) / 2 + cropPosition.x * viewportRatio;
+    const drawY = (AVATAR_SIZE - renderedHeight) / 2 + cropPosition.y * viewportRatio;
 
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
@@ -167,7 +214,24 @@ export default function ProfilePage() {
     setCropSource({ file, previewUrl: URL.createObjectURL(file) });
     setCropZoom(1);
     setCropPosition({ x: 0, y: 0 });
+    setCropMetrics(null);
     setStatus('');
+  };
+
+  const handleCropImageLoad = () => {
+    if (!imageRef.current || !cropViewportSize) {
+      return;
+    }
+
+    const nextMetrics = {
+      naturalWidth: imageRef.current.naturalWidth,
+      naturalHeight: imageRef.current.naturalHeight,
+      baseScale: Math.max(cropViewportSize / imageRef.current.naturalWidth, cropViewportSize / imageRef.current.naturalHeight),
+    };
+
+    setCropMetrics(nextMetrics);
+    setCropZoom(1);
+    setCropPosition({ x: 0, y: 0 });
   };
 
   const handleCropPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -184,15 +248,20 @@ export default function ProfilePage() {
       return;
     }
 
-    setCropPosition({
-      x: clamp(dragStart.cropX + (event.clientX - dragStart.x), -220, 220),
-      y: clamp(dragStart.cropY + (event.clientY - dragStart.y), -220, 220),
-    });
+    setCropPosition(clampCropPosition(
+      dragStart.cropX + (event.clientX - dragStart.x),
+      dragStart.cropY + (event.clientY - dragStart.y),
+    ));
   };
 
   const stopCropDragging = () => {
     setIsDraggingCrop(false);
     setDragStart(null);
+  };
+
+  const resetCrop = () => {
+    setCropZoom(1);
+    setCropPosition({ x: 0, y: 0 });
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -260,22 +329,51 @@ export default function ProfilePage() {
 
           {cropSource ? (
             <div className={styles.cropCard}>
-              <div
-                className={styles.cropViewport}
-                onPointerDown={handleCropPointerDown}
-                onPointerMove={handleCropPointerMove}
-                onPointerUp={stopCropDragging}
-                onPointerLeave={stopCropDragging}
-              >
-                <img ref={imageRef} src={cropSource.previewUrl} alt="Предпросмотр аватара" className={styles.cropImage} style={cropTransform} draggable={false} />
-              </div>
-              <label className={styles.zoomControl}>
-                <span>Масштаб</span>
-                <input type="range" min="1" max="2.6" step="0.05" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} />
-              </label>
-              <div className={styles.cropActions}>
-                <button type="button" className={styles.secondaryButton} onClick={() => { URL.revokeObjectURL(cropSource.previewUrl); setCropSource(null); }}>Отмена</button>
-                <button type="button" className={styles.button} onClick={finalizeAvatarCrop} disabled={isUploadingAvatar}>{isUploadingAvatar ? 'Загружаю...' : 'Применить аватар'}</button>
+              <div className={styles.cropLayout}>
+                <div className={styles.cropWorkspace}>
+                  <div className={styles.cropSourcePreview}>
+                    <img src={cropSource.previewUrl} alt="Исходная фотография" className={styles.cropSourceImage} />
+                  </div>
+                  <div
+                    ref={cropViewportRef}
+                    className={styles.cropViewport}
+                    onPointerDown={handleCropPointerDown}
+                    onPointerMove={handleCropPointerMove}
+                    onPointerUp={stopCropDragging}
+                    onPointerLeave={stopCropDragging}
+                  >
+                    <img ref={imageRef} src={cropSource.previewUrl} alt="Предпросмотр аватара" className={styles.cropImage} style={cropTransform} draggable={false} onLoad={handleCropImageLoad} />
+                    <div className={styles.cropFrame} />
+                  </div>
+                </div>
+                <div className={styles.cropSidebar}>
+                  <div className={styles.cropPreviewCard}>
+                    <span className={styles.cropPreviewLabel}>Итоговый аватар</span>
+                    <div className={`${styles.cropAvatarPreview} ${styles[`avatar_${avatarColor}`]}`}>
+                      {cropSource ? <img src={cropSource.previewUrl} alt="Итоговый аватар" className={styles.cropAvatarPreviewImage} style={previewTransform} draggable={false} /> : null}
+                    </div>
+                  </div>
+                  <label className={styles.zoomControl}>
+                    <span>Масштаб</span>
+                    <input
+                      type="range"
+                      min="1"
+                      max="3"
+                      step="0.05"
+                      value={cropZoom}
+                      onChange={(event) => {
+                        const nextZoom = Number(event.target.value);
+                        setCropZoom(nextZoom);
+                        setCropPosition((prev) => clampCropPosition(prev.x, prev.y, nextZoom));
+                      }}
+                    />
+                  </label>
+                  <div className={styles.cropActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={resetCrop}>Сбросить</button>
+                    <button type="button" className={styles.secondaryButton} onClick={() => { URL.revokeObjectURL(cropSource.previewUrl); setCropSource(null); setCropMetrics(null); }}>Отмена</button>
+                    <button type="button" className={styles.button} onClick={finalizeAvatarCrop} disabled={isUploadingAvatar}>{isUploadingAvatar ? 'Загружаю...' : 'Применить аватар'}</button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}
