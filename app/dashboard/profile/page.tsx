@@ -103,7 +103,7 @@ export default function ProfilePage() {
   };
 
   const cropTransform = useMemo(
-    () => ({ transform: `translate(${cropPosition.x}px, ${cropPosition.y}px) scale(${(cropMetrics?.baseScale || 1) * cropZoom})` }),
+    () => ({ transform: `translate(calc(-50% + ${cropPosition.x}px), calc(-50% + ${cropPosition.y}px)) scale(${(cropMetrics?.baseScale || 1) * cropZoom})` }),
     [cropMetrics?.baseScale, cropPosition.x, cropPosition.y, cropZoom],
   );
 
@@ -111,7 +111,7 @@ export default function ProfilePage() {
     const previewSize = 96;
     const ratio = previewSize / cropViewportSize;
     return {
-      transform: `translate(${cropPosition.x * ratio}px, ${cropPosition.y * ratio}px) scale(${((cropMetrics?.baseScale || 1) * cropZoom) * ratio})`,
+      transform: `translate(calc(-50% + ${cropPosition.x * ratio}px), calc(-50% + ${cropPosition.y * ratio}px)) scale(${((cropMetrics?.baseScale || 1) * cropZoom) * ratio})`,
     };
   }, [cropMetrics?.baseScale, cropPosition.x, cropPosition.y, cropViewportSize, cropZoom]);
 
