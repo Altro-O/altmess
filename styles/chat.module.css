@@ -321,6 +321,24 @@
   text-align: center;
 }
 
+.scrollToLatestButton {
+  position: sticky;
+  left: calc(100% - 62px);
+  bottom: 16px;
+  z-index: 10;
+  width: 46px;
+  height: 46px;
+  margin-top: auto;
+  border: 0;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+  color: white;
+  font-size: 22px;
+  box-shadow: 0 18px 34px rgba(31, 111, 255, 0.24);
+}
+
 .messageStack {
   display: grid;
   gap: 18px;

@@ -234,6 +234,7 @@ export default function ChatPage() {
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [draftsByContact, setDraftsByContact] = useState<Record<string, string>>({});
   const [isDragOver, setIsDragOver] = useState(false);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -613,6 +614,22 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    const area = messageAreaRef.current;
+    if (!area) {
+      return;
+    }
+
+    const handleScroll = () => {
+      const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
+      setShowScrollToLatest(distanceFromBottom > 240);
+    };
+
+    handleScroll();
+    area.addEventListener('scroll', handleScroll);
+    return () => area.removeEventListener('scroll', handleScroll);
+  }, [messages.length, activeContactId]);
+
   const registerMessageNode = useCallback((messageId: string, node: HTMLDivElement | null) => {
     if (node) {
       messageNodeMapRef.current.set(messageId, node);
@@ -969,6 +986,10 @@ export default function ChatPage() {
       setHighlightedMessageId(null);
       highlightTimerRef.current = null;
     }, 1800);
+  };
+
+  const scrollToLatest = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   const toggleReaction = (messageId: string, emoji: string) => {
@@ -1517,7 +1538,7 @@ export default function ChatPage() {
                     return (
                       <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
                         <div
-                          ref={ownMessage ? undefined : (node) => registerMessageNode(message.id, node)}
+                          ref={(node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
                           className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${isPhotoMessage ? styles.messageBubbleMedia : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
                           onContextMenu={(event) => {
@@ -1642,6 +1663,11 @@ export default function ChatPage() {
                   {visibleMessages.length === 0 && messageSearchQuery.trim() ? <div className={styles.searchEmptyState}>Ничего не найдено в этом диалоге</div> : null}
                   <div ref={messagesEndRef} />
                 </div>
+                {showScrollToLatest ? (
+                  <button type="button" className={styles.scrollToLatestButton} onClick={scrollToLatest} aria-label="Перейти к последнему сообщению" title="К последнему сообщению">
+                    ↓
+                  </button>
+                ) : null}
               </div>
 
               <div className={styles.composer}>
