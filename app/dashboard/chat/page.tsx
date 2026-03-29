@@ -1467,7 +1467,6 @@ export default function ChatPage() {
         <aside className={`${styles.sidebar} ${showMobileChat ? styles.sidebarHiddenMobile : ''}`}>
           <div className={styles.sidebarHeader}>
             <h1 className={styles.sidebarTitle}>Диалоги</h1>
-            <p className={styles.sidebarText}>Список чатов теперь закреплен отдельно и не исчезает при длинной переписке.</p>
           </div>
 
           <input

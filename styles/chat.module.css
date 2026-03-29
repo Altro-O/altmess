@@ -19,7 +19,7 @@
 }
 
 .sidebarHeader {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .sidebarTitle {
@@ -63,7 +63,7 @@
   padding: 14px;
   border: 1px solid transparent;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.84);
+  background: rgba(255, 255, 255, 0.94);
   text-align: left;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
@@ -71,8 +71,8 @@
 .contact:hover,
 .contactActive {
   transform: translateY(-1px);
-  border-color: rgba(31, 111, 255, 0.16);
-  box-shadow: 0 18px 32px rgba(31, 111, 255, 0.12);
+  border-color: rgba(31, 111, 255, 0.24);
+  box-shadow: 0 20px 36px rgba(31, 111, 255, 0.16);
 }
 
 .avatar,
@@ -184,9 +184,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 20px 24px;
+  padding: 18px 24px;
   border-bottom: 1px solid rgba(17, 24, 39, 0.08);
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.84);
   backdrop-filter: blur(14px);
   position: sticky;
   top: 0;
@@ -1487,6 +1487,7 @@
   overflow: hidden;
   border-radius: 18px;
   background: rgba(15, 23, 42, 0.05);
+  box-shadow: 0 14px 24px rgba(15, 23, 42, 0.08);
 }
 
 .galleryThumbImage {
@@ -1554,6 +1555,7 @@
   .panelHeader {
     align-items: flex-start;
     flex-direction: column;
+    gap: 16px;
   }
 
   .dialogSearchBar {
@@ -1577,6 +1579,9 @@
 
   .headerActions {
     width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 1.15fr 1.15fr;
+    gap: 10px;
   }
 
   .dialogProfileBackdrop {
@@ -1597,6 +1602,10 @@
     flex: 1;
     min-height: 44px;
   }
+
+  .panelIdentity {
+    width: 100%;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1611,11 +1620,19 @@
     overflow: auto;
   }
 
+  .contact {
+    border-radius: 24px;
+  }
+
   .panelHeader,
   .messageArea,
   .composer {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  .composer {
+    background: rgba(255, 255, 255, 0.95);
   }
 
   .panelIdentity {
