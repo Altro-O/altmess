@@ -151,6 +151,7 @@ export default function ChatPage() {
   const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
   const [replyQuote, setReplyQuote] = useState('');
   const [quoteDraft, setQuoteDraft] = useState('');
+  const [selectedQuoteText, setSelectedQuoteText] = useState('');
   const [showQuoteEditor, setShowQuoteEditor] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [iceServers, setIceServers] = useState<RTCIceServer[]>([
@@ -660,6 +661,7 @@ export default function ChatPage() {
       setReplyMessage(null);
       setReplyQuote('');
       setQuoteDraft('');
+      setSelectedQuoteText('');
       setShowQuoteEditor(false);
       setShowEmojiPicker(false);
       if (composerTextareaRef.current) {
@@ -680,6 +682,25 @@ export default function ChatPage() {
     textarea.style.overflowY = textarea.scrollHeight > 144 ? 'auto' : 'hidden';
   }, [inputText]);
 
+  useEffect(() => {
+    if (!showQuoteEditor) {
+      setSelectedQuoteText('');
+      return;
+    }
+
+    const updateSelectedQuote = () => {
+      const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+      const nextSelection = selection && quoteSelectionRef.current?.contains(selection.anchorNode)
+        ? selection.toString().trim()
+        : '';
+
+      setSelectedQuoteText(nextSelection);
+    };
+
+    document.addEventListener('selectionchange', updateSelectedQuote);
+    return () => document.removeEventListener('selectionchange', updateSelectedQuote);
+  }, [showQuoteEditor]);
+
   const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -691,6 +712,7 @@ export default function ChatPage() {
     setReplyMessage(message);
     setReplyQuote('');
     setQuoteDraft(message.kind === 'text' ? message.content : '');
+    setSelectedQuoteText('');
     setShowQuoteEditor(false);
     setActionMessageId(null);
   };
@@ -701,16 +723,14 @@ export default function ChatPage() {
     }
 
     setQuoteDraft(replyQuote || replyMessage.content);
+    setSelectedQuoteText(replyQuote || '');
     setShowQuoteEditor(true);
   };
 
   const applyQuoteSelection = () => {
-    const selection = typeof window !== 'undefined' ? window.getSelection() : null;
-    const selectedText = selection && quoteSelectionRef.current?.contains(selection.anchorNode)
-      ? selection.toString().trim()
-      : '';
-    const nextQuote = (selectedText || quoteDraft).trim().slice(0, 280);
+    const nextQuote = (selectedQuoteText || quoteDraft).trim().slice(0, 280);
     setReplyQuote(nextQuote);
+    setSelectedQuoteText(nextQuote);
     setShowQuoteEditor(false);
   };
 
@@ -721,6 +741,7 @@ export default function ChatPage() {
     }
 
     setQuoteDraft(message.content);
+    setSelectedQuoteText('');
     setShowQuoteEditor(true);
   };
 
@@ -728,6 +749,7 @@ export default function ChatPage() {
     setReplyMessage(null);
     setReplyQuote('');
     setQuoteDraft('');
+    setSelectedQuoteText('');
     setShowQuoteEditor(false);
   };
 
@@ -831,6 +853,7 @@ export default function ChatPage() {
         setReplyMessage(null);
         setReplyQuote('');
         setQuoteDraft('');
+        setSelectedQuoteText('');
         setShowQuoteEditor(false);
         setVoiceSeconds(0);
       },
@@ -917,6 +940,7 @@ export default function ChatPage() {
           setReplyMessage(null);
           setReplyQuote('');
           setQuoteDraft('');
+          setSelectedQuoteText('');
           setShowQuoteEditor(false);
         },
       );
@@ -971,6 +995,7 @@ export default function ChatPage() {
         setReplyMessage(null);
         setReplyQuote('');
         setQuoteDraft('');
+        setSelectedQuoteText('');
         setShowQuoteEditor(false);
         setShowStickerPicker(false);
       },
@@ -1345,12 +1370,15 @@ export default function ChatPage() {
                 {showQuoteEditor && replyMessage?.kind === 'text' ? (
                   <div className={styles.quoteEditor}>
                     <strong className={styles.quoteEditorTitle}>Выберите фрагмент для цитаты</strong>
-                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста. Исходное сообщение здесь только для чтения и не редактируется.</p>
+                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста. На iPhone кнопка снизу берет уже сохраненное выделение, поэтому оно не теряется при нажатии.</p>
                     <div ref={quoteSelectionRef} className={styles.quoteEditorSelection}>
                       {quoteDraft}
                     </div>
+                    <div className={styles.quoteEditorSelectionState}>
+                      {selectedQuoteText ? `Выбрано: ${selectedQuoteText}` : 'Пока ничего не выбрано. Если нажать сейчас, процитируется весь текст.'}
+                    </div>
                     <div className={styles.quoteEditorActions}>
-                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setShowQuoteEditor(false); }}>Отмена</button>
+                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setSelectedQuoteText(''); setShowQuoteEditor(false); }}>Отмена</button>
                       <button type="button" className={styles.smallButton} onClick={applyQuoteSelection}>Цитировать</button>
                     </div>
                   </div>

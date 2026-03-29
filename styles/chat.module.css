@@ -1,16 +1,19 @@
 .chatPage {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 336px minmax(0, 1fr);
   height: calc(100vh - 78px);
   overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(31, 111, 255, 0.08), transparent 24%),
+    linear-gradient(180deg, #f7faff 0%, #eef4ff 100%);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  padding: 18px;
+  padding: 22px 18px 18px;
   border-right: 1px solid rgba(17, 24, 39, 0.08);
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(16px);
   overflow: auto;
 }
@@ -148,9 +151,13 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+  margin: 18px 18px 18px 14px;
+  border: 1px solid rgba(17, 24, 39, 0.06);
+  border-radius: 34px;
   background:
     radial-gradient(circle at top, rgba(31, 111, 255, 0.1), transparent 26%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.46));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.58));
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
 }
 
 .panelHeader {
@@ -247,13 +254,14 @@
 .messageArea {
   flex: 1;
   overflow: auto;
-  padding: 26px 24px 18px;
+  padding: 30px 30px 20px;
 }
 
 .messageStack {
   display: grid;
   gap: 18px;
-  max-width: 980px;
+  width: min(100%, 940px);
+  margin: 0 auto;
 }
 
 .messageRowOwn,
@@ -706,6 +714,8 @@
 }
 
 .composer {
+  width: min(100%, 940px);
+  margin: 0 auto;
   padding: 18px 24px 24px;
   border-top: 1px solid rgba(17, 24, 39, 0.08);
   background: rgba(255, 255, 255, 0.74);
@@ -841,6 +851,15 @@
 .quoteEditorText {
   margin: 0;
   color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.quoteEditorSelectionState {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(31, 111, 255, 0.08);
+  color: #1d4ed8;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1134,6 +1153,10 @@
   }
 
   .panel {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     overflow: hidden;
     min-height: 0;
     height: 100%;
@@ -1233,6 +1256,7 @@
     bottom: 0;
     z-index: 7;
     flex-shrink: 0;
+    width: 100%;
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
     background: rgba(255, 255, 255, 0.92);
   }
@@ -1273,6 +1297,19 @@
 
   .messageTools {
     align-items: flex-start;
+  }
+
+  .quoteEditorActions {
+    justify-content: stretch;
+    position: sticky;
+    bottom: 0;
+    padding-top: 6px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.98) 40%);
+  }
+
+  .quoteEditorActions .smallButton,
+  .quoteEditorActions .smallMutedButton {
+    flex: 1;
   }
 
   .messageQuickAction {
