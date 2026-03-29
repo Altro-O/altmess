@@ -1191,10 +1191,10 @@ export default function ChatPage() {
   };
 
   const sendFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
+    const files = event.target.files ? Array.from(event.target.files) : [];
     event.target.value = '';
 
-    if (!files) {
+    if (files.length === 0) {
       return;
     }
 
