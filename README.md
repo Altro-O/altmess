@@ -32,6 +32,27 @@ PWA-first realtime messenger for private communication between browsers and mobi
 - push notifications for messages and calls
 - mobile action sheets and PWA-friendly chat flow
 
+## Feature Matrix
+
+| Feature | Status | Notes |
+| --- | --- | --- |
+| One-to-one chat | Done | Realtime messaging between devices via Socket.IO |
+| Message states | Done | Sent / delivered / read |
+| Replies and quoting | Done | Includes quote selection flow on mobile |
+| Reactions and emoji | Done | Frequent emoji rise to the top |
+| Stickers | Done | Web-friendly local packs with frequent ordering |
+| Voice messages | Done | Inline recording and playback |
+| File and image sharing | Done | VPS-backed uploads, multi-upload, progress, drag/drop |
+| Media gallery | Done | Grouped gallery in dialog profile with jump-to-message |
+| Profile avatars | Done | Upload, crop, replace, delete, VPS cleanup |
+| Push notifications | Done | Messages and calls |
+| One-to-one calls | In progress | Significantly more resilient, still limited by mobile web platform rules |
+| PWA polish | In progress | Mobile UX is strong, but background iPhone behavior remains platform-limited |
+| Server-side pinned chats | Planned | Current pinned state is local to browser/PWA |
+| Multi-select and forwarding | Planned | Next major productivity block |
+| Group chats | Planned | Logical next communication feature |
+| Group calls | Planned | Will require a larger architecture step |
+
 ## Stack
 
 - Next.js 14
@@ -48,6 +69,32 @@ PWA-first realtime messenger for private communication between browsers and mobi
 - `Render` hosts the main application
 - `Neon` stores app state and metadata
 - separate infrastructure is used for TURN and uploaded media storage
+
+```text
+                +----------------------+
+                |      User Device     |
+                |  PWA / Browser UI    |
+                +----------+-----------+
+                           |
+                           v
+                +----------------------+
+                |        Render        |
+                | Next.js + Socket.IO  |
+                +----+-------------+---+
+                     |             |
+                     |             |
+                     v             v
+          +----------------+   +----------------+
+          |      Neon      |   |   VPS Media    |
+          | app state/meta |   | uploads/files  |
+          +----------------+   +----------------+
+                                  |
+                                  v
+                           +-------------+
+                           |   coturn    |
+                           | WebRTC TURN |
+                           +-------------+
+```
 
 ## Public App
 
@@ -127,5 +174,4 @@ Uploaded media is cleaned by a scheduled retention policy.
 ## Presentation follow-ups
 
 - add screenshots or GIFs for desktop/mobile chat
-- add a small architecture diagram
 - add a visual feature roadmap block
