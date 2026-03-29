@@ -338,6 +338,8 @@ export default function ChatPage() {
     return await new Promise<NonNullable<ChatMessage['attachment']>>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/uploads');
+      xhr.responseType = 'json';
+      xhr.timeout = 30000;
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.setRequestHeader('Content-Type', preparedFile.mimeType);
       xhr.setRequestHeader('X-File-Name', encodeURIComponent(uploadName));
@@ -348,8 +350,18 @@ export default function ChatPage() {
         }
       };
       xhr.onerror = () => reject(new Error('Не удалось загрузить файл'));
+      xhr.ontimeout = () => reject(new Error('Загрузка файла заняла слишком много времени'));
       xhr.onload = () => {
-        const data = JSON.parse(xhr.responseText || '{}');
+        const data = xhr.response && typeof xhr.response === 'object'
+          ? xhr.response as { attachment?: NonNullable<ChatMessage['attachment']>; error?: string }
+          : (() => {
+              try {
+                return JSON.parse(xhr.responseText || '{}') as { attachment?: NonNullable<ChatMessage['attachment']>; error?: string };
+              } catch {
+                return {};
+              }
+            })();
+
         if (xhr.status < 200 || xhr.status >= 300 || !data.attachment) {
           reject(new Error(data.error || 'Не удалось загрузить файл'));
           return;
