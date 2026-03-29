@@ -548,6 +548,36 @@
   background: rgba(15, 23, 42, 0.06);
 }
 
+.expiredAttachmentCard {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.messageBubblePeer .expiredAttachmentCard,
+.messageBubbleSystem .expiredAttachmentCard {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.expiredAttachmentTitle,
+.expiredAttachmentText {
+  margin: 0;
+}
+
+.expiredAttachmentTitle {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.expiredAttachmentText {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.82;
+}
+
 .messageBubbleMedia {
   padding: 0;
   background: transparent;

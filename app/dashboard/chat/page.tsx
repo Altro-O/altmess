@@ -131,6 +131,10 @@ function getFileBadgeLabel(fileName: string, mimeType?: string) {
   return 'FILE';
 }
 
+function isAttachmentExpired(message: ChatMessage) {
+  return Boolean(message.attachment && message.attachment.storageStatus && message.attachment.storageStatus !== 'ready');
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1227,6 +1231,7 @@ export default function ChatPage() {
                     const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
                     const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
                     const isPhotoMessage = isImageMessage && !isStickerMessage;
+                    const isExpiredAttachment = isAttachmentExpired(message);
                     const hasQuickActionButton = ownMessage && !message.deletedAt && !isCallEvent && isFileMessage;
                     const fileBadgeLabel = message.attachment
                       ? getFileBadgeLabel(message.attachment.fileName, message.attachment.mimeType)
@@ -1291,6 +1296,11 @@ export default function ChatPage() {
                                 <p className={`${styles.messageContent} ${styles.messageDeleted}`}>{message.content}</p>
                               ) : isVoiceMessage && message.voice ? (
                                 <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
+                              ) : isExpiredAttachment ? (
+                                <div className={styles.expiredAttachmentCard}>
+                                  <strong className={styles.expiredAttachmentTitle}>Файл недоступен</strong>
+                                  <p className={styles.expiredAttachmentText}>Старое вложение было удалено из хранилища, чтобы освободить место на сервере.</p>
+                                </div>
                               ) : isStickerMessage && message.attachment ? (
                                 <button type="button" className={styles.stickerCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
                                   <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
