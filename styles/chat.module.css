@@ -300,6 +300,9 @@
   flex: 1;
   overflow: auto;
   padding: 30px 30px 20px;
+  background:
+    radial-gradient(circle at top left, rgba(31, 111, 255, 0.04), transparent 24%),
+    linear-gradient(180deg, rgba(246, 249, 255, 0.92), rgba(239, 245, 255, 0.82));
 }
 
 .messageAreaDragOver {
@@ -543,6 +546,7 @@
   width: 100%;
   height: auto;
   object-fit: contain;
+  filter: drop-shadow(0 14px 22px rgba(15, 23, 42, 0.12));
 }
 
 .imagePreview {
@@ -680,6 +684,10 @@
   background: transparent;
   border: 0;
   box-shadow: none;
+}
+
+.messageBubbleSticker {
+  max-width: min(220px, 100%);
 }
 
 .messageMetaMediaOwn,

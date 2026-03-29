@@ -16,18 +16,8 @@ const MAX_IMAGE_DIMENSION = 1600;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 const PINNED_CHATS_KEY = 'altmess_pinned_chats';
 const DRAFTS_KEY = 'altmess_dialog_drafts';
-const STICKER_PACKS = [
-  {
-    key: 'meownicorn',
-    title: 'Meownicorn',
-    items: Array.from({ length: 42 }, (_, index) => `/stickers/meownicorn/${String(index + 1).padStart(3, '0')}.webp`),
-  },
-  {
-    key: 'flork',
-    title: 'Flork',
-    items: Array.from({ length: 64 }, (_, index) => `/stickers/flork/${String(index + 1).padStart(3, '0')}.webp`),
-  },
-] as const;
+const STICKER_USAGE_KEY = 'altmess_sticker_usage';
+const EMOJI_USAGE_KEY = 'altmess_emoji_usage';
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -194,6 +184,18 @@ function getTimelineDateLabel(dateValue: string) {
   return target.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
+function sortByUsage<T extends string>(items: T[], usage: Record<string, number>) {
+  return [...items].sort((first, second) => {
+    const secondCount = usage[second] || 0;
+    const firstCount = usage[first] || 0;
+    if (secondCount !== firstCount) {
+      return secondCount - firstCount;
+    }
+
+    return items.indexOf(first) - items.indexOf(second);
+  });
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -235,6 +237,9 @@ export default function ChatPage() {
   const [draftsByContact, setDraftsByContact] = useState<Record<string, string>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+  const [stickerPacks, setStickerPacks] = useState<Array<{ key: string; title: string; items: string[] }>>([]);
+  const [stickerUsage, setStickerUsage] = useState<Record<string, number>>({});
+  const [emojiUsage, setEmojiUsage] = useState<Record<string, number>>({});
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -410,11 +415,17 @@ export default function ChatPage() {
     try {
       const savedPins = JSON.parse(window.localStorage.getItem(PINNED_CHATS_KEY) || '[]');
       const savedDrafts = JSON.parse(window.localStorage.getItem(DRAFTS_KEY) || '{}');
+      const savedStickerUsage = JSON.parse(window.localStorage.getItem(STICKER_USAGE_KEY) || '{}');
+      const savedEmojiUsage = JSON.parse(window.localStorage.getItem(EMOJI_USAGE_KEY) || '{}');
       setPinnedChatIds(Array.isArray(savedPins) ? savedPins.map(String) : []);
       setDraftsByContact(savedDrafts && typeof savedDrafts === 'object' ? savedDrafts : {});
+      setStickerUsage(savedStickerUsage && typeof savedStickerUsage === 'object' ? savedStickerUsage : {});
+      setEmojiUsage(savedEmojiUsage && typeof savedEmojiUsage === 'object' ? savedEmojiUsage : {});
     } catch {
       setPinnedChatIds([]);
       setDraftsByContact({});
+      setStickerUsage({});
+      setEmojiUsage({});
     }
   }, []);
 
@@ -433,6 +444,29 @@ export default function ChatPage() {
 
     window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(draftsByContact));
   }, [draftsByContact]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(STICKER_USAGE_KEY, JSON.stringify(stickerUsage));
+  }, [stickerUsage]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(EMOJI_USAGE_KEY, JSON.stringify(emojiUsage));
+  }, [emojiUsage]);
+
+  useEffect(() => {
+    fetch('/api/stickers')
+      .then((response) => response.json())
+      .then((data) => setStickerPacks(Array.isArray(data?.packs) ? data.packs : []))
+      .catch(() => setStickerPacks([]));
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -809,6 +843,22 @@ export default function ChatPage() {
       .map(([key, value]) => ({ key, ...value }));
   }, [galleryImages]);
 
+  const orderedEmojis = useMemo(() => sortByUsage(EMOJI_OPTIONS, emojiUsage), [emojiUsage]);
+
+  const orderedStickerPacks = useMemo(() => {
+    const packs = stickerPacks.map((pack) => ({
+      ...pack,
+      items: sortByUsage(pack.items, stickerUsage),
+    }));
+
+    const frequentlyUsedItems = packs.flatMap((pack) => pack.items).filter((item) => (stickerUsage[item] || 0) > 0).sort((first, second) => (stickerUsage[second] || 0) - (stickerUsage[first] || 0)).slice(0, 24);
+    if (frequentlyUsedItems.length === 0) {
+      return packs;
+    }
+
+    return [{ key: 'frequent', title: 'Часто используемые', items: Array.from(new Set(frequentlyUsedItems)) }, ...packs];
+  }, [stickerPacks, stickerUsage]);
+
   const timelineItems = useMemo(() => {
     const items: Array<{ type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage }> = [];
     let currentDayKey = '';
@@ -979,6 +1029,7 @@ export default function ChatPage() {
 
   const appendEmoji = (emoji: string) => {
     setInputText((prev) => `${prev}${emoji}`);
+    setEmojiUsage((prev) => ({ ...prev, [emoji]: (prev[emoji] || 0) + 1 }));
     setShowEmojiPicker(false);
   };
 
@@ -1235,6 +1286,8 @@ export default function ChatPage() {
     }
 
     const fileName = fileUrl.split('/').pop() || 'sticker.webp';
+    const extension = fileName.split('.').pop()?.toLowerCase() || 'webp';
+    const mimeType = extension === 'webm' ? 'video/webm' : 'image/webp';
     socketRef.current.emit(
       'message:send',
       {
@@ -1242,7 +1295,7 @@ export default function ChatPage() {
         kind: 'file',
         attachment: {
           fileName,
-          mimeType: 'image/webp',
+          mimeType,
           sizeBytes: 0,
           fileUrl,
           isSticker: true,
@@ -1259,11 +1312,8 @@ export default function ChatPage() {
 
         setMessages((prev) => upsertMessage(prev, response.message!));
         bumpSidebarMessage(activeContact.id, response.message, 0);
-        setReplyMessage(null);
-        setReplyQuote('');
-        setQuoteDraft('');
-        setSelectedQuoteText('');
-        setShowQuoteEditor(false);
+        setStickerUsage((prev) => ({ ...prev, [fileUrl]: (prev[fileUrl] || 0) + 1 }));
+        resetReplyState();
         setShowStickerPicker(false);
       },
     );
@@ -1541,6 +1591,7 @@ export default function ChatPage() {
                     const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
                     const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
                     const isPhotoMessage = isImageMessage && !isStickerMessage;
+                    const isVideoStickerMessage = isStickerMessage && !!message.attachment?.mimeType?.startsWith('video/');
                     const isExpiredAttachment = isAttachmentExpired(message);
                     const hasQuickActionButton = ownMessage && !message.deletedAt && !isCallEvent && isFileMessage;
                     const fileBadgeLabel = message.attachment
@@ -1552,7 +1603,7 @@ export default function ChatPage() {
                         <div
                           ref={(node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
-                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${isPhotoMessage ? styles.messageBubbleMedia : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
+                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${(isPhotoMessage || isStickerMessage) ? styles.messageBubbleMedia : ''} ${isStickerMessage ? styles.messageBubbleSticker : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
                           onContextMenu={(event) => {
                             if (message.deletedAt || isCallEvent) {
                               return;
@@ -1613,7 +1664,11 @@ export default function ChatPage() {
                                 </div>
                               ) : isStickerMessage && message.attachment ? (
                                 <button type="button" className={styles.stickerCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
-                                  <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
+                                  {isVideoStickerMessage ? (
+                                    <video src={message.attachment.fileUrl} className={styles.stickerImage} autoPlay muted loop playsInline />
+                                  ) : (
+                                    <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
+                                  )}
                                 </button>
                               ) : isImageMessage && message.attachment ? (
                                 <button type="button" className={styles.imageCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
@@ -1631,7 +1686,7 @@ export default function ChatPage() {
                               ) : (
                                 <p className={styles.messageContent}>{message.content}</p>
                               )}
-                              <div className={`${isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer} ${isPhotoMessage ? ownMessage ? styles.messageMetaMediaOwn : styles.messageMetaMediaPeer : ''}`}>
+                              <div className={`${isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer} ${(isPhotoMessage || isStickerMessage) ? ownMessage ? styles.messageMetaMediaOwn : styles.messageMetaMediaPeer : ''}`}>
                                 <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
                                   {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </p>
@@ -1641,7 +1696,7 @@ export default function ChatPage() {
                               {!isMobileLayout && !message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
                                 <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
                                   <div className={styles.reactionPickerMenu}>
-                                    {EMOJI_OPTIONS.map((emoji) => (
+                                    {orderedEmojis.map((emoji) => (
                                       <button key={emoji} type="button" className={styles.reactionMenuEmoji} onClick={() => { toggleReaction(message.id, emoji); setActionMessageId(null); }}>{emoji}</button>
                                     ))}
                                   </div>
@@ -1725,20 +1780,24 @@ export default function ChatPage() {
                 ) : null}
                 {showEmojiPicker ? (
                   <div className={styles.emojiPicker}>
-                    {EMOJI_OPTIONS.map((emoji) => (
+                    {orderedEmojis.map((emoji) => (
                       <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
                     ))}
                   </div>
                 ) : null}
                 {showStickerPicker ? (
                   <div className={styles.stickerPicker}>
-                    {STICKER_PACKS.map((pack) => (
+                    {orderedStickerPacks.map((pack) => (
                       <div key={pack.key} className={styles.stickerPack}>
                         <strong className={styles.stickerPackTitle}>{pack.title}</strong>
                         <div className={styles.stickerGrid}>
                           {pack.items.map((fileUrl) => (
                             <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => sendSticker(pack.key, fileUrl)}>
-                              <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                              {fileUrl.endsWith('.webm') ? (
+                                <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
+                              ) : (
+                                <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                              )}
                             </button>
                           ))}
                         </div>
@@ -1875,7 +1934,7 @@ export default function ChatPage() {
               <p className={styles.mobileActionSheetText}>{getMessagePreview(actionMessage)}</p>
             </div>
             <div className={styles.mobileActionSheetReactions}>
-              {EMOJI_OPTIONS.map((emoji) => (
+              {orderedEmojis.map((emoji) => (
                 <button key={emoji} type="button" className={styles.mobileActionSheetEmoji} onClick={() => { toggleReaction(actionMessage.id, emoji); setActionMessageId(null); }}>{emoji}</button>
               ))}
             </div>
