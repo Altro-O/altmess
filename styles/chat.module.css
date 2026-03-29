@@ -66,6 +66,7 @@
   background: rgba(255, 255, 255, 0.94);
   text-align: left;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  overflow: hidden;
 }
 
 .contact:hover,
@@ -85,6 +86,7 @@
   color: white;
   font-weight: 800;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .avatar {
@@ -163,6 +165,7 @@
   color: #1d4ed8;
   font-size: 18px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .panel {
@@ -1513,20 +1516,22 @@
     height: calc(100vh - 78px);
     min-height: calc(100vh - 78px);
     overflow: hidden;
+    position: relative;
   }
 
   .sidebar {
+    width: 100%;
     border-right: 0;
     border-bottom: 0;
     max-height: none;
   }
 
   .sidebarHiddenMobile {
-    display: none;
+    display: none !important;
   }
 
   .panelHiddenMobile {
-    display: none;
+    display: none !important;
   }
 
   .panelVisibleMobile {
@@ -1563,6 +1568,8 @@
   }
 
   .panel {
+    width: 100%;
+    max-width: 100%;
     margin: 0;
     border: 0;
     border-radius: 0;
