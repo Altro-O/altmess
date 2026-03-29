@@ -247,6 +247,16 @@
   font-weight: 500;
 }
 
+.dangerLinkButton {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .input:focus {
   border-color: rgba(31, 111, 255, 0.42);
   box-shadow: 0 0 0 5px rgba(31, 111, 255, 0.12);

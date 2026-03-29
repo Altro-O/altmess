@@ -303,6 +303,21 @@ export default function ProfilePage() {
     setCropPosition({ x: 0, y: 0 });
   };
 
+  const removeAvatar = () => {
+    if (cropSource?.previewUrl) {
+      URL.revokeObjectURL(cropSource.previewUrl);
+    }
+
+    setCropSource(null);
+    setCropMetrics(null);
+    setCropZoom(1);
+    setCropPosition({ x: 0, y: 0 });
+    setAvatarUrl('');
+    setAvatarStorageKey(null);
+    setAvatarStorageKind(null);
+    setStatus('Аватар будет удален после сохранения профиля');
+  };
+
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!token) {
@@ -364,6 +379,7 @@ export default function ProfilePage() {
             <span>Загрузка аватара</span>
             <input type="file" accept="image/*" onChange={handleAvatarUpload} className={styles.fileInput} />
             <span className={styles.hint}>После выбора можно подвигать и приблизить изображение перед загрузкой.</span>
+            {avatarUrl ? <button type="button" className={styles.dangerLinkButton} onClick={removeAvatar}>Удалить аватар</button> : null}
           </div>
 
           {cropSource ? (
