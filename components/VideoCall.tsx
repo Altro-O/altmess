@@ -131,9 +131,56 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
   const ensureRemotePlayback = async () => {
     try {
+      await remoteVideoRef.current?.play();
       await remoteAudioRef.current?.play();
     } catch {
       return;
+    }
+  };
+
+  const restoreLocalMediaIfNeeded = async () => {
+    const currentStream = localStreamRef.current;
+    if (!currentStream) {
+      return currentStream;
+    }
+
+    const tracksEnded = currentStream.getTracks().some((track) => track.readyState === 'ended');
+    if (!tracksEnded) {
+      return currentStream;
+    }
+
+    const nextStream = await createLocalMedia();
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection) {
+      return nextStream;
+    }
+
+    nextStream.getTracks().forEach((track) => {
+      const sender = peerConnection.getSenders().find((entry) => entry.track?.kind === track.kind);
+      sender?.replaceTrack(track).catch(() => null);
+    });
+
+    return nextStream;
+  };
+
+  const requestConnectionRefresh = async () => {
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection || call.initiator === false) {
+      return;
+    }
+
+    try {
+      await restoreLocalMediaIfNeeded();
+      peerConnection.restartIce?.();
+      if (peerConnection.signalingState !== 'stable') {
+        return;
+      }
+
+      const offer = await peerConnection.createOffer({ iceRestart: true });
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('webrtc:offer', { callId: call.callId, offer });
+    } catch (error) {
+      console.error('Failed to refresh call connection:', error);
     }
   };
 
@@ -206,20 +253,40 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
     const handleOnline = () => {
       setConnectionNotice('Соединение восстанавливается...');
+      ensureRemotePlayback();
+      requestConnectionRefresh().catch(() => null);
+    };
+
+    const handleVisibilityRestore = () => {
+      if (document.visibilityState !== 'visible' || (phase !== 'active' && phase !== 'connecting')) {
+        return;
+      }
+
+      setConnectionNotice('Возвращаем аудио и видео после паузы...');
+      ensureRemotePlayback();
+      restoreLocalMediaIfNeeded()
+        .then(() => requestConnectionRefresh())
+        .catch(() => null);
     };
 
     socket.on('disconnect', handleSocketDisconnect);
     socket.on('reconnect', handleSocketReconnect);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
+    window.addEventListener('pageshow', handleVisibilityRestore);
+    document.addEventListener('visibilitychange', handleVisibilityRestore);
+    window.addEventListener('focus', handleVisibilityRestore);
 
     return () => {
       socket.off('disconnect', handleSocketDisconnect);
       socket.off('reconnect', handleSocketReconnect);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
+      window.removeEventListener('pageshow', handleVisibilityRestore);
+      document.removeEventListener('visibilitychange', handleVisibilityRestore);
+      window.removeEventListener('focus', handleVisibilityRestore);
     };
-  }, [phase, socket]);
+  }, [call.callId, call.initiator, phase, socket]);
 
   useEffect(() => {
     if (localVideoRef.current) {
