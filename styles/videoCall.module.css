@@ -129,6 +129,14 @@
   font-size: 13px;
 }
 
+.notice {
+  margin: 8px 0 0;
+  max-width: 280px;
+  color: #fef3c7;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .localCard {
   position: absolute;
   top: 24px;

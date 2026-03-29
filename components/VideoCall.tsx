@@ -24,6 +24,7 @@ interface VideoCallProps {
 
 export default function VideoCall({ socket, call, iceServers, onClose }: VideoCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'outgoing' : 'incoming');
+  const [connectionNotice, setConnectionNotice] = useState('');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -46,6 +47,15 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+  };
+
+  const scheduleReconnectTimeout = () => {
+    clearDisconnectTimer();
+    disconnectTimerRef.current = setTimeout(() => {
+      setPhase('ended');
+      closeResources();
+      onClose();
+    }, 30000);
   };
 
   const stopRingtone = () => {
@@ -146,6 +156,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
   useEffect(() => {
     setPhase(call.initiator ? 'outgoing' : 'incoming');
+    setConnectionNotice('');
     setVideoEnabled(call.mode === 'video');
     setVideoUnavailable(false);
     clearDisconnectTimer();
@@ -170,6 +181,45 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     ringtoneAudioContextRef.current?.close().catch(() => null);
     ringtoneAudioContextRef.current = null;
   }, []);
+
+  useEffect(() => {
+    const handleSocketDisconnect = () => {
+      if (phase === 'active' || phase === 'connecting') {
+        setConnectionNotice('Потеряли сеть. Пытаемся переподключить звонок...');
+        setPhase('connecting');
+        scheduleReconnectTimeout();
+      }
+    };
+
+    const handleSocketReconnect = () => {
+      setConnectionNotice('');
+      clearDisconnectTimer();
+    };
+
+    const handleOffline = () => {
+      if (phase === 'active' || phase === 'connecting') {
+        setConnectionNotice('Интернет пропал. Ждем восстановление соединения...');
+        setPhase('connecting');
+        scheduleReconnectTimeout();
+      }
+    };
+
+    const handleOnline = () => {
+      setConnectionNotice('Соединение восстанавливается...');
+    };
+
+    socket.on('disconnect', handleSocketDisconnect);
+    socket.on('reconnect', handleSocketReconnect);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      socket.off('disconnect', handleSocketDisconnect);
+      socket.off('reconnect', handleSocketReconnect);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [phase, socket]);
 
   useEffect(() => {
     if (localVideoRef.current) {
@@ -253,6 +303,24 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       onClose();
     };
 
+    const handlePeerReconnecting = ({ callId }: { callId: string }) => {
+      if (callId !== call.callId) {
+        return;
+      }
+
+      setConnectionNotice('Слабое соединение у собеседника. Ждем переподключение...');
+    };
+
+    const handlePeerReconnected = ({ callId }: { callId: string }) => {
+      if (callId !== call.callId) {
+        return;
+      }
+
+      setConnectionNotice('');
+      clearDisconnectTimer();
+      setPhase('active');
+    };
+
     const handleOffer = async ({ callId, offer }: { callId: string; offer: RTCSessionDescriptionInit }) => {
       if (callId !== call.callId || call.initiator) {
         return;
@@ -316,6 +384,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     socket.on('call:rejected', handleRejected);
     socket.on('call:ended', handleEnded);
     socket.on('call:missed', handleMissed);
+    socket.on('call:peer-reconnecting', handlePeerReconnecting);
+    socket.on('call:peer-reconnected', handlePeerReconnected);
     socket.on('webrtc:offer', handleOffer);
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice-candidate', handleIceCandidate);
@@ -325,6 +395,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       socket.off('call:rejected', handleRejected);
       socket.off('call:ended', handleEnded);
       socket.off('call:missed', handleMissed);
+      socket.off('call:peer-reconnecting', handlePeerReconnecting);
+      socket.off('call:peer-reconnected', handlePeerReconnected);
       socket.off('webrtc:offer', handleOffer);
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice-candidate', handleIceCandidate);
@@ -407,28 +479,45 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     peerConnection.onconnectionstatechange = () => {
       if (peerConnection.connectionState === 'connected') {
         setPhase('active');
+        setConnectionNotice('');
         clearDisconnectTimer();
+      }
+
+      if (peerConnection.connectionState === 'connecting') {
+        setConnectionNotice('Соединяем или восстанавливаем звонок...');
       }
 
       if (peerConnection.connectionState === 'failed') {
-        setPhase('error');
-        closeResources();
-        onClose();
+        setConnectionNotice('Слабое соединение. Пытаемся восстановить звонок...');
+        setPhase('connecting');
+        peerConnection.restartIce?.();
+        scheduleReconnectTimeout();
       }
 
       if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'closed') {
-        clearDisconnectTimer();
-        disconnectTimerRef.current = setTimeout(() => {
-          setPhase('ended');
-          closeResources();
-          onClose();
-        }, 1200);
+        setConnectionNotice('Соединение нестабильно. Ждем восстановления...');
+        setPhase('connecting');
+        scheduleReconnectTimeout();
       }
     };
 
     peerConnection.oniceconnectionstatechange = () => {
+      if (peerConnection.iceConnectionState === 'connected' || peerConnection.iceConnectionState === 'completed') {
+        setConnectionNotice('');
+        clearDisconnectTimer();
+      }
+
+      if (peerConnection.iceConnectionState === 'disconnected') {
+        setConnectionNotice('Слабое соединение. Пытаемся удержать звонок...');
+        setPhase('connecting');
+        scheduleReconnectTimeout();
+      }
+
       if (peerConnection.iceConnectionState === 'failed') {
-        setPhase('error');
+        setConnectionNotice('Не удалось быстро восстановить соединение. Пробуем переподключиться...');
+        setPhase('connecting');
+        peerConnection.restartIce?.();
+        scheduleReconnectTimeout();
       }
     };
 
@@ -551,6 +640,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
           <div className={styles.topBar}>
             <strong>{call.peerName}</strong>
             <span>{statusText}</span>
+            {connectionNotice ? <p className={styles.notice}>{connectionNotice}</p> : null}
           </div>
 
           {call.mode === 'video' ? (

@@ -22,6 +22,7 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
 const RING_TIMEOUT_MS = 30000;
+const CALL_RECONNECT_GRACE_MS = 30000;
 const MAX_MEDIA_UPLOAD_BYTES = 12 * 1024 * 1024;
 const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
@@ -427,6 +428,7 @@ app.prepare().then(async () => {
   const activeUsers = new Map();
   const activeCalls = new Map();
   const ringTimeouts = new Map();
+  const callReconnectTimeouts = new Map();
 
   function isUserOnline(userId) {
     return activeUsers.has(userId);
@@ -436,6 +438,17 @@ app.prepare().then(async () => {
     const sockets = activeUsers.get(userId) || new Set();
     sockets.add(socketId);
     activeUsers.set(userId, sockets);
+    [...activeCalls.values()]
+      .filter((call) => ['ringing', 'active'].includes(call.status) && (call.callerId === userId || call.recipientId === userId))
+      .forEach((call) => {
+        const timeoutKey = `${call.id}:${userId}`;
+        const timeout = callReconnectTimeouts.get(timeoutKey);
+        if (timeout) {
+          clearTimeout(timeout);
+          callReconnectTimeouts.delete(timeoutKey);
+          emitToUser(getCallPeerId(call, userId), 'call:peer-reconnected', { callId: call.id, userId });
+        }
+      });
   }
 
   function removeUserSocket(userId, socketId) {
@@ -510,6 +523,42 @@ app.prepare().then(async () => {
       clearTimeout(timeout);
       ringTimeouts.delete(callId);
     }
+  }
+
+  function clearCallReconnectTimeout(callId, userId) {
+    const timeoutKey = `${callId}:${userId}`;
+    const timeout = callReconnectTimeouts.get(timeoutKey);
+    if (timeout) {
+      clearTimeout(timeout);
+      callReconnectTimeouts.delete(timeoutKey);
+    }
+  }
+
+  function scheduleCallReconnectTimeout(call, disconnectedUserId) {
+    clearCallReconnectTimeout(call.id, disconnectedUserId);
+    const timeoutKey = `${call.id}:${disconnectedUserId}`;
+    const timeout = setTimeout(async () => {
+      const db = readDb();
+      const storedCall = db.calls.find((entry) => entry.id === call.id);
+      if (!storedCall || !['ringing', 'active'].includes(storedCall.status) || isUserOnline(disconnectedUserId)) {
+        callReconnectTimeouts.delete(timeoutKey);
+        return;
+      }
+
+      clearRingTimeout(call.id);
+      call.status = 'ended';
+      call.endedAt = new Date().toISOString();
+      storedCall.status = 'ended';
+      storedCall.endedAt = call.endedAt;
+      activeCalls.delete(call.id);
+      callReconnectTimeouts.delete(timeoutKey);
+      emitToUser(getCallPeerId(call, disconnectedUserId), 'call:ended', { callId: call.id, byUserId: disconnectedUserId });
+      persistCallLog(db, storedCall, disconnectedUserId).catch((error) => {
+        console.error('Failed to persist reconnect-timeout call log:', error);
+      });
+    }, CALL_RECONNECT_GRACE_MS);
+
+    callReconnectTimeouts.set(timeoutKey, timeout);
   }
 
   function emitIncomingCall(call, fromUser) {
@@ -1215,6 +1264,8 @@ app.prepare().then(async () => {
       }
 
       clearRingTimeout(call.id);
+      clearCallReconnectTimeout(call.id, call.callerId);
+      clearCallReconnectTimeout(call.id, call.recipientId);
       call.status = 'active';
       storedCall.status = 'active';
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
@@ -1240,6 +1291,8 @@ app.prepare().then(async () => {
       }
 
       clearRingTimeout(call.id);
+      clearCallReconnectTimeout(call.id, call.callerId);
+      clearCallReconnectTimeout(call.id, call.recipientId);
       call.status = 'rejected';
       storedCall.status = 'rejected';
       storedCall.endedAt = new Date().toISOString();
@@ -1261,6 +1314,8 @@ app.prepare().then(async () => {
       }
 
       clearRingTimeout(call.id);
+      clearCallReconnectTimeout(call.id, call.callerId);
+      clearCallReconnectTimeout(call.id, call.recipientId);
       call.status = 'ended';
       storedCall.status = 'ended';
       storedCall.endedAt = new Date().toISOString();
@@ -1311,23 +1366,17 @@ app.prepare().then(async () => {
       removeUserSocket(currentUser.id, socket.id);
       [...activeCalls.values()]
         .filter((call) => ['ringing', 'active'].includes(call.status) && (call.callerId === currentUser.id || call.recipientId === currentUser.id))
-        .forEach(async (call) => {
-          const db = readDb();
-          const storedCall = db.calls.find((entry) => entry.id === call.id);
-          if (!storedCall) {
+        .forEach((call) => {
+          if (isUserOnline(currentUser.id)) {
             return;
           }
 
-          clearRingTimeout(call.id);
-          call.status = 'ended';
-          call.endedAt = new Date().toISOString();
-          storedCall.status = 'ended';
-          storedCall.endedAt = call.endedAt;
-          activeCalls.delete(call.id);
-          emitToUser(getCallPeerId(call, currentUser.id), 'call:ended', { callId: call.id, byUserId: currentUser.id });
-          persistCallLog(db, storedCall, currentUser.id).catch((error) => {
-            console.error('Failed to persist disconnect call log:', error);
+          emitToUser(getCallPeerId(call, currentUser.id), 'call:peer-reconnecting', {
+            callId: call.id,
+            userId: currentUser.id,
+            graceMs: CALL_RECONNECT_GRACE_MS,
           });
+          scheduleCallReconnectTimeout(call, currentUser.id);
         });
 
       if (!isUserOnline(currentUser.id)) {
