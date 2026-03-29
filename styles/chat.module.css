@@ -124,6 +124,18 @@
   gap: 10px;
 }
 
+.contactNameWrap {
+  display: grid;
+  min-width: 0;
+}
+
+.pinnedMark {
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .unreadBadge {
   min-width: 22px;
   height: 22px;
@@ -144,6 +156,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pinToggle {
+  align-self: flex-start;
+  color: #1d4ed8;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .panel {
@@ -179,6 +198,14 @@
   align-items: center;
   gap: 14px;
   min-width: 0;
+}
+
+.panelIdentityButton {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .backButton {
@@ -231,6 +258,24 @@
   gap: 10px;
 }
 
+.dialogSearchBar {
+  padding: 12px 24px 0;
+}
+
+.dialogSearchInput {
+  width: 100%;
+  padding: 13px 15px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  outline: none;
+}
+
+.dialogSearchInput:focus {
+  border-color: rgba(31, 111, 255, 0.42);
+  box-shadow: 0 0 0 5px rgba(31, 111, 255, 0.12);
+}
+
 .headerIconButton,
 .headerVideoButton {
   width: 52px;
@@ -255,6 +300,25 @@
   flex: 1;
   overflow: auto;
   padding: 30px 30px 20px;
+}
+
+.messageAreaDragOver {
+  position: relative;
+}
+
+.dropOverlay {
+  position: sticky;
+  top: 12px;
+  z-index: 9;
+  margin: 0 auto 12px;
+  width: min(100%, 940px);
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px dashed rgba(31, 111, 255, 0.35);
+  background: rgba(31, 111, 255, 0.12);
+  color: #1d4ed8;
+  font-weight: 700;
+  text-align: center;
 }
 
 .messageStack {
@@ -752,6 +816,42 @@
   backdrop-filter: blur(16px);
 }
 
+.uploadQueue {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.uploadQueueItem {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.08);
+}
+
+.uploadQueueMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.uploadBar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.uploadBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+}
+
 .emojiPicker {
   display: flex;
   flex-wrap: wrap;
@@ -1238,6 +1338,102 @@
   line-height: 1.6;
 }
 
+.searchEmptyState {
+  width: min(100%, 940px);
+  margin: 0 auto;
+  padding: 24px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #667085;
+  text-align: center;
+}
+
+.dialogProfileBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 135;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(10px);
+}
+
+.dialogProfileSheet {
+  width: min(760px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
+}
+
+.dialogProfileHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dialogProfileAvatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 22px;
+  overflow: hidden;
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+
+.dialogProfileTitle {
+  margin: 0;
+  font-size: 22px;
+}
+
+.dialogProfileText,
+.galleryEmpty {
+  margin: 0;
+  color: #667085;
+}
+
+.dialogProfileActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.galleryHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.galleryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 10px;
+}
+
+.galleryThumb {
+  aspect-ratio: 1;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.galleryThumbImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 @media (max-width: 960px) {
   .chatPage {
     grid-template-columns: 1fr;
@@ -1288,6 +1484,10 @@
     flex-direction: column;
   }
 
+  .dialogSearchBar {
+    padding: 12px 16px 0;
+  }
+
   .panel {
     margin: 0;
     border: 0;
@@ -1305,6 +1505,17 @@
 
   .headerActions {
     width: 100%;
+  }
+
+  .dialogProfileBackdrop {
+    align-items: flex-end;
+    padding: 12px;
+  }
+
+  .dialogProfileSheet {
+    width: 100%;
+    max-height: 82vh;
+    border-radius: 28px 28px 18px 18px;
   }
 
   .secondaryButton,

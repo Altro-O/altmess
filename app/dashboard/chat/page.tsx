@@ -14,6 +14,8 @@ const READ_VISIBILITY_THRESHOLD = 0.8;
 const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
 const MAX_IMAGE_DIMENSION = 1600;
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const PINNED_CHATS_KEY = 'altmess_pinned_chats';
+const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_PACKS = [
   {
     key: 'meownicorn',
@@ -135,6 +137,38 @@ function isAttachmentExpired(message: ChatMessage) {
   return Boolean(message.attachment && message.attachment.storageStatus && message.attachment.storageStatus !== 'ready');
 }
 
+function getMessageSearchValue(message: ChatMessage) {
+  if (message.kind === 'file') {
+    return [message.content, message.attachment?.fileName || '', message.attachment?.mimeType || ''].join(' ').toLowerCase();
+  }
+
+  return [message.content, message.replyTo?.content || '', message.replyTo?.quote || ''].join(' ').toLowerCase();
+}
+
+function sortContactsWithPins(contacts: Contact[], pinnedIds: string[]) {
+  const pinnedOrder = new Map(pinnedIds.map((id, index) => [id, index]));
+  return [...contacts].sort((first, second) => {
+    const firstPinned = pinnedOrder.has(first.id);
+    const secondPinned = pinnedOrder.has(second.id);
+
+    if (firstPinned && secondPinned) {
+      return (pinnedOrder.get(first.id) || 0) - (pinnedOrder.get(second.id) || 0);
+    }
+
+    if (firstPinned) {
+      return -1;
+    }
+
+    if (secondPinned) {
+      return 1;
+    }
+
+    const firstTime = first.lastMessage?.createdAt || first.createdAt || '';
+    const secondTime = second.lastMessage?.createdAt || second.createdAt || '';
+    return secondTime.localeCompare(firstTime);
+  });
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -143,6 +177,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [pageError, setPageError] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -167,7 +203,12 @@ export default function ChatPage() {
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<Array<{ name: string; progress: number }>>([]);
   const [previewImage, setPreviewImage] = useState<{ src: string; name: string } | null>(null);
+  const [showDialogProfile, setShowDialogProfile] = useState(false);
+  const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
+  const [draftsByContact, setDraftsByContact] = useState<Record<string, string>>({});
+  const [isDragOver, setIsDragOver] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -251,7 +292,7 @@ export default function ChatPage() {
     };
   };
 
-  const uploadAttachment = async (file: File) => {
+  const uploadAttachment = async (file: File, onProgress?: (progress: number) => void) => {
     if (!token) {
       throw new Error('Сессия недействительна');
     }
@@ -268,23 +309,31 @@ export default function ChatPage() {
       ? `${file.name.replace(/\.[^.]+$/, '') || 'image'}.jpg`
       : file.name;
 
-    const response = await fetch('/api/uploads', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': preparedFile.mimeType,
-        'X-File-Name': encodeURIComponent(uploadName),
-        'X-File-Size': String(preparedFile.sizeBytes),
-      },
-      body: preparedFile.blob,
+    return await new Promise<NonNullable<ChatMessage['attachment']>>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/uploads');
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.setRequestHeader('Content-Type', preparedFile.mimeType);
+      xhr.setRequestHeader('X-File-Name', encodeURIComponent(uploadName));
+      xhr.setRequestHeader('X-File-Size', String(preparedFile.sizeBytes));
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          onProgress?.(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Не удалось загрузить файл'));
+      xhr.onload = () => {
+        const data = JSON.parse(xhr.responseText || '{}');
+        if (xhr.status < 200 || xhr.status >= 300 || !data.attachment) {
+          reject(new Error(data.error || 'Не удалось загрузить файл'));
+          return;
+        }
+
+        onProgress?.(100);
+        resolve(data.attachment as NonNullable<ChatMessage['attachment']>);
+      };
+      xhr.send(preparedFile.blob);
     });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.attachment) {
-      throw new Error(data.error || 'Не удалось загрузить файл');
-    }
-
-    return data.attachment as NonNullable<ChatMessage['attachment']>;
   };
 
   const loadSidebar = useCallback(async () => {
@@ -297,7 +346,7 @@ export default function ChatPage() {
       : '/api/dialogs';
     const response = await apiFetch<{ dialogs?: Contact[]; users?: Contact[] }>(endpoint, { token });
     const nextItems = response.dialogs || response.users || [];
-    setSidebarItems(nextItems);
+    setSidebarItems(sortContactsWithPins(nextItems, pinnedChatIds));
     setActiveContactId((prev) => {
       if (prev && nextItems.some((item) => item.id === prev)) {
         return prev;
@@ -309,11 +358,43 @@ export default function ChatPage() {
 
       return null;
     });
-  }, [requestedContactId, searchQuery, token]);
+  }, [pinnedChatIds, requestedContactId, searchQuery, token]);
 
   useEffect(() => {
     activeContactRef.current = activeContactId;
   }, [activeContactId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const savedPins = JSON.parse(window.localStorage.getItem(PINNED_CHATS_KEY) || '[]');
+      const savedDrafts = JSON.parse(window.localStorage.getItem(DRAFTS_KEY) || '{}');
+      setPinnedChatIds(Array.isArray(savedPins) ? savedPins.map(String) : []);
+      setDraftsByContact(savedDrafts && typeof savedDrafts === 'object' ? savedDrafts : {});
+    } catch {
+      setPinnedChatIds([]);
+      setDraftsByContact({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(PINNED_CHATS_KEY, JSON.stringify(pinnedChatIds));
+  }, [pinnedChatIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(DRAFTS_KEY, JSON.stringify(draftsByContact));
+  }, [draftsByContact]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -386,13 +467,14 @@ export default function ChatPage() {
               return prev;
             }
 
-             const nextContact = {
-               ...existing,
-               lastMessage: message,
+            return sortContactsWithPins([
+              {
+                ...existing,
+                lastMessage: message,
                 unreadCount: message.senderId !== currentUserId ? (existing.unreadCount || 0) + 1 : 0,
-              };
-
-            return [nextContact, ...prev.filter((contact) => contact.id !== partnerId)];
+              },
+              ...prev.filter((contact) => contact.id !== partnerId),
+            ], pinnedChatIds);
           });
 
           if (partnerId === currentContactId) {
@@ -403,7 +485,7 @@ export default function ChatPage() {
         socket.on('message:status', (patch: Partial<ChatMessage> & { id: string }) => {
           setMessages((prev) => prev.map((message) => (message.id === patch.id ? { ...message, ...patch } : message)));
           setSidebarItems((prev) =>
-            prev.map((contact) =>
+            sortContactsWithPins(prev.map((contact) =>
               contact.id === patch.senderId && patch.recipientId === currentUserId && patch.status === 'read'
                 ? {
                     ...contact,
@@ -413,17 +495,13 @@ export default function ChatPage() {
                 : contact.lastMessage?.id === patch.id
                   ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
                   : contact,
-            ),
+            ), pinnedChatIds),
           );
         });
 
         socket.on('message:update', (message: ChatMessage) => {
           setMessages((prev) => upsertMessage(prev, message));
-          setSidebarItems((prev) =>
-            prev.map((contact) =>
-              contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact,
-            ),
-          );
+          setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact)), pinnedChatIds));
         });
 
         socket.on('call:incoming', ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
@@ -497,6 +575,14 @@ export default function ChatPage() {
       setShowMobileChat(true);
     }
   }, [isMobileLayout, requestedContactId, sidebarItems]);
+
+  useEffect(() => {
+    if (!activeContactId) {
+      return;
+    }
+
+    setInputText((prev) => (prev.trim() ? prev : draftsByContact[activeContactId] || ''));
+  }, [activeContactId, draftsByContact]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -633,11 +719,61 @@ export default function ChatPage() {
     [activeContactId, sidebarItems],
   );
 
+  const visibleMessages = useMemo(() => {
+    const query = messageSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return messages;
+    }
+
+    return messages.filter((message) => getMessageSearchValue(message).includes(query));
+  }, [messageSearchQuery, messages]);
+
+  const galleryImages = useMemo(
+    () => messages.filter((message) => message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/') && !message.attachment?.isSticker && !isAttachmentExpired(message) && !message.deletedAt),
+    [messages],
+  );
+
+  const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
+
   const handleSelectContact = (contactId: string) => {
+    if (activeContactId && activeContactId !== contactId) {
+      setDraftsByContact((prev) => ({ ...prev, [activeContactId]: inputText }));
+    }
+
     setActiveContactId(contactId);
+    setInputText(draftsByContact[contactId] || '');
+    setMessageSearchQuery('');
+    setShowMessageSearch(false);
+    setShowDialogProfile(false);
     if (isMobileLayout) {
       setShowMobileChat(true);
     }
+  };
+
+  const updateSidebarContact = (contactId: string, updater: (contact: Contact) => Contact) => {
+    setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === contactId ? updater(contact) : contact)), pinnedChatIds));
+  };
+
+  const togglePinnedChat = (contactId: string) => {
+    setPinnedChatIds((prev) => {
+      const nextPins = prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [contactId, ...prev];
+      setSidebarItems((current) => sortContactsWithPins(current, nextPins));
+      return nextPins;
+    });
+  };
+
+  const bumpSidebarMessage = (contactId: string, message: ChatMessage, unreadCount?: number) => {
+    setSidebarItems((prev) => {
+      const existing = prev.find((contact) => contact.id === contactId);
+      if (!existing) {
+        return prev;
+      }
+
+      return sortContactsWithPins([
+        { ...existing, lastMessage: message, unreadCount: unreadCount ?? existing.unreadCount ?? 0 },
+        ...prev.filter((contact) => contact.id !== contactId),
+      ], pinnedChatIds);
+    });
   };
 
   const submitMessage = (event: React.FormEvent) => {
@@ -654,20 +790,10 @@ export default function ChatPage() {
       }
 
       setMessages((prev) => upsertMessage(prev, response.message!));
-      setSidebarItems((prev) => {
-        const existing = prev.find((contact) => contact.id === activeContact.id);
-        if (!existing) {
-          return prev;
-        }
-
-        return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
-      });
+      bumpSidebarMessage(activeContact.id, response.message, 0);
       setInputText('');
-      setReplyMessage(null);
-      setReplyQuote('');
-      setQuoteDraft('');
-      setSelectedQuoteText('');
-      setShowQuoteEditor(false);
+      setDraftsByContact((prev) => ({ ...prev, [activeContact.id]: '' }));
+      resetReplyState();
       setShowEmojiPicker(false);
       if (composerTextareaRef.current) {
         composerTextareaRef.current.style.height = '0px';
@@ -847,14 +973,7 @@ export default function ChatPage() {
         }
 
         setMessages((prev) => upsertMessage(prev, response.message!));
-        setSidebarItems((prev) => {
-          const existing = prev.find((contact) => contact.id === activeContact.id);
-          if (!existing) {
-            return prev;
-          }
-
-          return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
-        });
+        bumpSidebarMessage(activeContact.id, response.message, 0);
         setReplyMessage(null);
         setReplyQuote('');
         setQuoteDraft('');
@@ -900,64 +1019,117 @@ export default function ChatPage() {
     }
   };
 
-  const sendFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
+  const resetReplyState = () => {
+    setReplyMessage(null);
+    setReplyQuote('');
+    setQuoteDraft('');
+    setSelectedQuoteText('');
+    setShowQuoteEditor(false);
+  };
 
-    if (!file || !socketRef.current || !activeContact) {
+  const sendUploadedAttachmentMessage = (uploadedAttachment: NonNullable<ChatMessage['attachment']>) => new Promise<ChatMessage>((resolve, reject) => {
+    if (!socketRef.current || !activeContact) {
+      reject(new Error('Чат не выбран'));
       return;
     }
 
-    if (file.size > MAX_FILE_BYTES) {
-      setPageError('Файл слишком большой. Пока лимит 12 MB');
+    socketRef.current.emit(
+      'message:send',
+      {
+        recipientId: activeContact.id,
+        kind: 'file',
+        attachment: uploadedAttachment,
+        replyToMessageId: replyMessage?.id,
+        replyQuote,
+      },
+      (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+        if (!response.ok || !response.message) {
+          reject(new Error(response.error || 'Не удалось отправить файл'));
+          return;
+        }
+
+        resolve(response.message);
+      },
+    );
+  });
+
+  const sendFilesBatch = async (files: FileList | File[]) => {
+    if (!socketRef.current || !activeContact) {
+      return;
+    }
+
+    const nextFiles = Array.from(files).filter(Boolean);
+    if (nextFiles.length === 0) {
+      return;
+    }
+
+    const tooLargeFile = nextFiles.find((file) => file.size > MAX_FILE_BYTES);
+    if (tooLargeFile) {
+      setPageError(`Файл ${tooLargeFile.name} слишком большой. Пока лимит 12 MB`);
       return;
     }
 
     setIsUploadingFile(true);
     setPageError('');
+    setUploadProgress(nextFiles.map((file) => ({ name: file.name, progress: 0 })));
+
     try {
-      const uploadedAttachment = await uploadAttachment(file);
+      for (let index = 0; index < nextFiles.length; index += 1) {
+        const file = nextFiles[index];
+        const uploadedAttachment = await uploadAttachment(file, (progress) => {
+          setUploadProgress((prev) => prev.map((entry, entryIndex) => (entryIndex === index ? { ...entry, progress } : entry)));
+        });
+        const message = await sendUploadedAttachmentMessage(uploadedAttachment);
+        setMessages((prev) => upsertMessage(prev, message));
+        bumpSidebarMessage(activeContact.id, message, 0);
+      }
 
-      socketRef.current.emit(
-        'message:send',
-        {
-          recipientId: activeContact.id,
-          kind: 'file',
-          attachment: uploadedAttachment,
-          replyToMessageId: replyMessage?.id,
-          replyQuote,
-        },
-        (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-          if (!response.ok || !response.message) {
-            setPageError(response.error || 'Не удалось отправить файл');
-            return;
-          }
-
-          setMessages((prev) => upsertMessage(prev, response.message!));
-          setSidebarItems((prev) => {
-            const existing = prev.find((contact) => contact.id === activeContact.id);
-            if (!existing) {
-              return prev;
-            }
-
-            return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
-          });
-          setReplyMessage(null);
-          setReplyQuote('');
-          setQuoteDraft('');
-          setSelectedQuoteText('');
-          setShowQuoteEditor(false);
-        },
-      );
+      resetReplyState();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Не удалось отправить файл');
+      setPageError(error instanceof Error ? error.message : 'Не удалось отправить файлы');
     } finally {
       setIsUploadingFile(false);
+      setUploadProgress([]);
     }
+  };
+
+  const sendFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    event.target.value = '';
+
+    if (!files) {
+      return;
+    }
+
+    await sendFilesBatch(files);
   };
 
   const openFilePicker = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleDropFiles = async (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+
+    if (event.dataTransfer.files?.length) {
+      await sendFilesBatch(event.dataTransfer.files);
+    }
+  };
+
+  const handleDragEnter = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    if (!isMobileLayout) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    if (event.currentTarget === event.target) {
+      setIsDragOver(false);
+    }
   };
 
   const sendSticker = (packKey: string, fileUrl: string) => {
@@ -989,14 +1161,7 @@ export default function ChatPage() {
         }
 
         setMessages((prev) => upsertMessage(prev, response.message!));
-        setSidebarItems((prev) => {
-          const existing = prev.find((contact) => contact.id === activeContact.id);
-          if (!existing) {
-            return prev;
-          }
-
-          return [{ ...existing, lastMessage: response.message, unreadCount: 0 }, ...prev.filter((contact) => contact.id !== activeContact.id)];
-        });
+        bumpSidebarMessage(activeContact.id, response.message, 0);
         setReplyMessage(null);
         setReplyQuote('');
         setQuoteDraft('');
@@ -1036,7 +1201,7 @@ export default function ChatPage() {
       }
 
       setMessages((prev) => upsertMessage(prev, response.message!));
-      setSidebarItems((prev) => prev.map((contact) => (contact.lastMessage?.id === messageId ? { ...contact, lastMessage: response.message } : contact)));
+      setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === messageId ? { ...contact, lastMessage: response.message } : contact)), pinnedChatIds));
       setActionMessageId(null);
     });
   };
@@ -1178,10 +1343,31 @@ export default function ChatPage() {
                 />
                 <span className={styles.contactMeta}>
                   <span className={styles.contactNameRow}>
-                    <span className={styles.contactName}>{contact.displayName || contact.username}</span>
+                    <span className={styles.contactNameWrap}>
+                      {pinnedChatIds.includes(contact.id) ? <span className={styles.pinnedMark}>Закреплен</span> : null}
+                      <span className={styles.contactName}>{contact.displayName || contact.username}</span>
+                    </span>
                     {contact.unreadCount ? <span className={styles.unreadBadge}>{contact.unreadCount}</span> : null}
                   </span>
                   <span className={styles.contactPreview}>{contact.lastMessage ? getMessagePreview(contact.lastMessage) : (contact.bio || contact.email)}</span>
+                </span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className={styles.pinToggle}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    togglePinnedChat(contact.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      togglePinnedChat(contact.id);
+                    }
+                  }}
+                >
+                  {pinnedChatIds.includes(contact.id) ? '★' : '☆'}
                 </span>
               </button>
             ))}
@@ -1192,9 +1378,10 @@ export default function ChatPage() {
           {activeContact ? (
             <>
               <div className={styles.panelHeader}>
+                <div className={styles.panelIdentityButton} role="button" tabIndex={0} onClick={() => setShowDialogProfile(true)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setShowDialogProfile(true); } }}>
                 <div className={styles.panelIdentity}>
                   {isMobileLayout ? (
-                    <button type="button" className={styles.backButton} onClick={() => setShowMobileChat(false)}>
+                    <button type="button" className={styles.backButton} onClick={(event) => { event.stopPropagation(); setShowMobileChat(false); }}>
                       ←
                     </button>
                   ) : null}
@@ -1210,7 +1397,17 @@ export default function ChatPage() {
                     <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
                   </div>
                 </div>
+                </div>
                 <div className={styles.headerActions}>
+                  <button type="button" className={styles.headerIconButton} onClick={() => setShowMessageSearch((prev) => !prev)} aria-label="Поиск по диалогу" title="Поиск по диалогу">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.44 1.04-1.04-4.44-4.43A6.5 6.5 0 0 0 10.5 4Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z" fill="currentColor"/></svg>
+                  </button>
+                  <button type="button" className={styles.headerIconButton} onClick={() => setShowDialogProfile(true)} aria-label="Медиа и информация" title="Медиа и информация">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 1.5a.5.5 0 0 0-.5.5v8.12l3.35-3.35a1 1 0 0 1 1.42 0l1.73 1.73 3.15-3.15a1 1 0 0 1 1.41 0l1.94 1.94V6a.5.5 0 0 0-.5-.5H6Zm12 13a.5.5 0 0 0 .5-.5v-3.44l-2.65-2.65-3.15 3.15a1 1 0 0 1-1.41 0l-1.73-1.73-3.06 3.06V18c0 .28.22.5.5.5h12ZM9 8.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z" fill="currentColor"/></svg>
+                  </button>
+                  <button type="button" className={styles.headerIconButton} onClick={() => togglePinnedChat(activeContact.id)} aria-label={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'} title={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}>
+                    {isActiveChatPinned ? '★' : '☆'}
+                  </button>
                   <button type="button" className={styles.headerIconButton} onClick={() => startCall('audio')} aria-label="Аудиозвонок" title="Аудиозвонок">
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
                   </button>
@@ -1220,9 +1417,16 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              <div ref={messageAreaRef} className={styles.messageArea}>
+              {showMessageSearch ? (
+                <div className={styles.dialogSearchBar}>
+                  <input type="text" value={messageSearchQuery} onChange={(event) => setMessageSearchQuery(event.target.value)} className={styles.dialogSearchInput} placeholder="Поиск по сообщениям, файлам и цитатам" />
+                </div>
+              ) : null}
+
+              <div ref={messageAreaRef} className={`${styles.messageArea} ${isDragOver ? styles.messageAreaDragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={(event) => event.preventDefault()} onDragLeave={handleDragLeave} onDrop={handleDropFiles}>
+                {isDragOver ? <div className={styles.dropOverlay}>Отпустите файлы, чтобы отправить в чат</div> : null}
                 <div className={styles.messageStack}>
-                  {messages.map((message) => {
+                  {visibleMessages.map((message) => {
                     const ownMessage = message.senderId === user.id;
                     const isEditing = editingMessageId === message.id;
                     const isCallEvent = message.kind === 'call';
@@ -1362,12 +1566,26 @@ export default function ChatPage() {
                       </div>
                     );
                   })}
+                  {visibleMessages.length === 0 && messageSearchQuery.trim() ? <div className={styles.searchEmptyState}>Ничего не найдено в этом диалоге</div> : null}
                   <div ref={messagesEndRef} />
                 </div>
               </div>
 
               <div className={styles.composer}>
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
+                {uploadProgress.length ? (
+                  <div className={styles.uploadQueue}>
+                    {uploadProgress.map((entry) => (
+                      <div key={entry.name} className={styles.uploadQueueItem}>
+                        <div className={styles.uploadQueueMeta}>
+                          <strong>{entry.name}</strong>
+                          <span>{entry.progress}%</span>
+                        </div>
+                        <div className={styles.uploadBar}><span style={{ width: `${entry.progress}%` }} /></div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {replyMessage ? (
                   <div className={styles.replyBanner}>
                     <button type="button" className={styles.replyBannerBody} onClick={openQuoteEditor} disabled={replyMessage.kind !== 'text' || !!replyMessage.deletedAt}>
@@ -1422,7 +1640,13 @@ export default function ChatPage() {
                     <textarea
                       ref={composerTextareaRef}
                       value={inputText}
-                      onChange={(event) => setInputText(event.target.value)}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setInputText(nextValue);
+                        if (activeContactId) {
+                          setDraftsByContact((prev) => ({ ...prev, [activeContactId]: nextValue }));
+                        }
+                      }}
                       onKeyDown={handleComposerKeyDown}
                       placeholder="Введите сообщение..."
                       className={styles.composerInput}
@@ -1443,7 +1667,7 @@ export default function ChatPage() {
                       ) : null}
                     </div>
                   </div>
-                  <input ref={fileInputRef} type="file" className={styles.hiddenFileInput} onChange={sendFile} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" />
+                  <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={sendFile} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" />
                   <button type="button" className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
                   </button>
@@ -1480,6 +1704,43 @@ export default function ChatPage() {
         <button type="button" className={styles.imageLightbox} onClick={() => setPreviewImage(null)}>
           <img src={previewImage.src} alt={previewImage.name} className={styles.imageLightboxMedia} />
         </button>
+      ) : null}
+
+      {showDialogProfile && activeContact ? (
+        <div className={styles.dialogProfileBackdrop} onClick={() => setShowDialogProfile(false)}>
+          <div className={styles.dialogProfileSheet} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.dialogProfileHeader}>
+              <UserAvatar
+                avatarUrl={activeContact.avatarUrl}
+                alt={activeContact.displayName || activeContact.username}
+                fallback={getAvatarLabel(activeContact)}
+                className={`${styles.dialogProfileAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}
+                imageClassName={styles.avatarImage}
+              />
+              <div>
+                <h3 className={styles.dialogProfileTitle}>{activeContact.displayName || activeContact.username}</h3>
+                <p className={styles.dialogProfileText}>{getPresenceText(activeContact)}</p>
+              </div>
+            </div>
+            <div className={styles.dialogProfileActions}>
+              <button type="button" className={styles.secondaryButton} onClick={() => togglePinnedChat(activeContact.id)}>{isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}</button>
+              <button type="button" className={styles.secondaryButton} onClick={() => { setShowDialogProfile(false); setShowMessageSearch(true); }}>Поиск в диалоге</button>
+            </div>
+            <div className={styles.galleryHeaderRow}>
+              <strong>Галерея</strong>
+              <span>{galleryImages.length}</span>
+            </div>
+            {galleryImages.length ? (
+              <div className={styles.galleryGrid}>
+                {galleryImages.map((message) => (
+                  <button key={message.id} type="button" className={styles.galleryThumb} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
+                    <img src={message.attachment!.fileUrl} alt={message.attachment!.fileName} className={styles.galleryThumbImage} loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            ) : <p className={styles.galleryEmpty}>Пока нет изображений в этом диалоге.</p>}
+          </div>
+        </div>
       ) : null}
 
       {isMobileLayout && actionMessage && !actionMessage.deletedAt && actionMessage.kind !== 'call' ? (
