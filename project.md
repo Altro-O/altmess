@@ -17,9 +17,8 @@ Current product state already includes:
 
 ### Main app
 - repository: `https://github.com/Altro-O/altmess`
-- local app folder: `E:\projects\Altmess\messenger-app`
 - main production app: Render
-- public app URL: `https://altmess.onrender.com`
+- public app URL exists, but infra-specific endpoints should not be stored in public repo notes
 
 ### Database
 - Neon Postgres via `DATABASE_URL`
@@ -27,14 +26,11 @@ Current product state already includes:
 - Neon stores application state and metadata, not uploaded binary media
 
 ### VPS services
-- VPS public IP: `85.117.235.136`
-- Ubuntu 24.04
+- separate VPS infrastructure is used
 - currently hosts:
   - `coturn`
   - media server for uploads
   - nightly media cleanup timer
-- media public base URL:
-  - `https://media.85.117.235.136.sslip.io`
 
 ## Current architecture
 
@@ -83,39 +79,21 @@ Current product state already includes:
 
 Important note:
 - do not store real secrets in this file
-- rotate exposed credentials if they were pasted into chat/history during setup
+- do not store real hostnames, IPs, or operational endpoints here either
 
 ## Current VPS setup
 
 ### coturn
-- service name: `coturn`
-- firewall allows:
-  - `22/tcp`
-  - `3478/tcp`
-  - `3478/udp`
-  - `49160:49200/udp`
-  - `Nginx Full`
+- self-hosted TURN is in place and used by production calls
 
 ### media server
-- service name: `altmess-media`
-- listens internally on `127.0.0.1:4100`
-- served through nginx over HTTPS
-- current health check:
-  - `https://media.85.117.235.136.sslip.io/healthz`
+- media uploads are proxied to dedicated infrastructure outside the main Render app
 
 ### media cleanup
-- service: `altmess-media-cleanup.service`
-- timer: `altmess-media-cleanup.timer`
-- nightly schedule:
-  - `04:10 UTC`
-- current policy:
-  - soft limit: `6.5 GB`
-  - hard limit: `7 GB`
-  - minimum free disk reserve: `512 MB`
-- behavior:
-  - remove orphaned files first
-  - then expire oldest chat attachments if storage pressure remains
-  - expired attachments become placeholders in chat instead of broken links
+- scheduled retention policy exists for uploaded media
+- orphaned files are removed first
+- old attachments can be expired under storage pressure
+- expired attachments become placeholders in chat instead of broken links
 
 ## Current feature set
 

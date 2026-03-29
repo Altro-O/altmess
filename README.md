@@ -47,15 +47,11 @@ PWA-first realtime messenger for private communication between browsers and mobi
 
 - `Render` hosts the main application
 - `Neon` stores app state and metadata
-- `VPS` stores uploaded media and hosts:
-  - `coturn`
-  - media upload service
-  - nightly media cleanup timer
+- separate infrastructure is used for TURN and uploaded media storage
 
-## Current URLs
+## Public demo URL
 
 - app: `https://altmess.onrender.com`
-- media: `https://media.85.117.235.136.sslip.io`
 
 ## Local development
 
@@ -88,12 +84,10 @@ MEDIA_PUBLIC_BASE_URL=https://media.example.com
 
 ## Media cleanup policy
 
-Current VPS cleanup policy:
+Uploaded media is cleaned by a scheduled retention policy.
 
-- soft limit: `6.5 GB`
-- hard limit: `7 GB`
-- minimum free disk reserve: `512 MB`
-- nightly cleanup timer removes orphaned files first, then expires oldest attachments if needed
+- orphaned files are removed first
+- old attachments can be expired when storage pressure grows
 
 Expired files are shown in chat as placeholders instead of broken links.
 
@@ -104,12 +98,6 @@ Expired files are shown in chat as placeholders instead of broken links.
 3. Better one-to-one call fallback under weak network
 4. Group chats
 5. Group call architecture
-
-## Repo notes
-
-- active handoff: `project.md`
-- current task list: `task.md`
-- deploy notes: `DEPLOYMENT.md`
 
 ## Screenshots / presentation ideas
 
