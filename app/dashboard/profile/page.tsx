@@ -26,6 +26,37 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function createCroppedAvatarBlob(
+  image: HTMLImageElement,
+  viewportSize: number,
+  baseScale: number,
+  zoom: number,
+  position: { x: number; y: number },
+) {
+  const canvas = document.createElement('canvas');
+  canvas.width = AVATAR_SIZE;
+  canvas.height = AVATAR_SIZE;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Не удалось подготовить аватар');
+  }
+
+  const viewportRatio = AVATAR_SIZE / viewportSize;
+  const renderedWidth = image.naturalWidth * baseScale * zoom * viewportRatio;
+  const renderedHeight = image.naturalHeight * baseScale * zoom * viewportRatio;
+  const drawX = (AVATAR_SIZE - renderedWidth) / 2 + position.x * viewportRatio;
+  const drawY = (AVATAR_SIZE - renderedHeight) / 2 + position.y * viewportRatio;
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  context.drawImage(image, drawX, drawY, renderedWidth, renderedHeight);
+
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((nextBlob) => resolve(nextBlob), 'image/jpeg', 0.9);
+  });
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { isAuthenticated, isLoading, token, user, updateUser } = useAuth();
@@ -93,8 +124,8 @@ export default function ProfilePage() {
 
     const renderedWidth = nextMetrics.naturalWidth * nextMetrics.baseScale * nextZoom;
     const renderedHeight = nextMetrics.naturalHeight * nextMetrics.baseScale * nextZoom;
-    const maxOffsetX = Math.max(0, (renderedWidth - cropViewportSize) / 2);
-    const maxOffsetY = Math.max(0, (renderedHeight - cropViewportSize) / 2);
+    const maxOffsetX = Math.max(0, renderedWidth / 2 - cropViewportSize * 0.12);
+    const maxOffsetY = Math.max(0, renderedHeight / 2 - cropViewportSize * 0.12);
 
     return {
       x: clamp(nextX, -maxOffsetX, maxOffsetX),
@@ -144,34 +175,12 @@ export default function ProfilePage() {
   };
 
   const finalizeAvatarCrop = async () => {
-    if (!cropSource || !imageRef.current) {
+    if (!cropSource || !imageRef.current || !cropMetrics) {
       return;
     }
 
     const image = imageRef.current;
-    const canvas = document.createElement('canvas');
-    canvas.width = AVATAR_SIZE;
-    canvas.height = AVATAR_SIZE;
-    const context = canvas.getContext('2d');
-
-    if (!context) {
-      setStatus('Не удалось подготовить аватар');
-      return;
-    }
-
-    const viewportRatio = AVATAR_SIZE / cropViewportSize;
-    const renderedWidth = image.naturalWidth * (cropMetrics?.baseScale || 1) * cropZoom * viewportRatio;
-    const renderedHeight = image.naturalHeight * (cropMetrics?.baseScale || 1) * cropZoom * viewportRatio;
-    const drawX = (AVATAR_SIZE - renderedWidth) / 2 + cropPosition.x * viewportRatio;
-    const drawY = (AVATAR_SIZE - renderedHeight) / 2 + cropPosition.y * viewportRatio;
-
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
-    context.drawImage(image, drawX, drawY, renderedWidth, renderedHeight);
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((nextBlob) => resolve(nextBlob), 'image/jpeg', 0.9);
-    });
+    const blob = await createCroppedAvatarBlob(image, cropViewportSize, cropMetrics.baseScale, cropZoom, cropPosition);
 
     if (!blob) {
       setStatus('Не удалось подготовить аватар');
@@ -188,6 +197,36 @@ export default function ProfilePage() {
       setStatus('Аватар загружен. Не забудьте сохранить профиль');
       URL.revokeObjectURL(cropSource.previewUrl);
       setCropSource(null);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Не удалось загрузить аватар');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const applyAvatarWithoutEditing = async () => {
+    if (!cropSource || !imageRef.current || !cropMetrics) {
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setStatus('');
+    try {
+      const blob = await createCroppedAvatarBlob(imageRef.current, cropViewportSize, cropMetrics.baseScale, 1, { x: 0, y: 0 });
+      if (!blob) {
+        throw new Error('Не удалось подготовить аватар');
+      }
+
+      const uploaded = await uploadAvatarBlob(blob, `${cropSource.file.name.replace(/\.[^.]+$/, '') || 'avatar'}.jpg`);
+      setAvatarUrl(uploaded.avatarUrl);
+      setAvatarStorageKey(uploaded.avatarStorageKey || null);
+      setAvatarStorageKind(uploaded.avatarStorageKind || null);
+      setStatus('Аватар загружен целиком. Не забудьте сохранить профиль');
+      URL.revokeObjectURL(cropSource.previewUrl);
+      setCropSource(null);
+      setCropMetrics(null);
+      setCropZoom(1);
+      setCropPosition({ x: 0, y: 0 });
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Не удалось загрузить аватар');
     } finally {
@@ -369,6 +408,7 @@ export default function ProfilePage() {
                     />
                   </label>
                   <div className={styles.cropActions}>
+                    <button type="button" className={styles.secondaryButton} onClick={applyAvatarWithoutEditing} disabled={isUploadingAvatar}>Использовать целиком</button>
                     <button type="button" className={styles.secondaryButton} onClick={resetCrop}>Сбросить</button>
                     <button type="button" className={styles.secondaryButton} onClick={() => { URL.revokeObjectURL(cropSource.previewUrl); setCropSource(null); setCropMetrics(null); }}>Отмена</button>
                     <button type="button" className={styles.button} onClick={finalizeAvatarCrop} disabled={isUploadingAvatar}>{isUploadingAvatar ? 'Загружаю...' : 'Применить аватар'}</button>
