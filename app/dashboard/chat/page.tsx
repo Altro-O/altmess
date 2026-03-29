@@ -181,6 +181,7 @@ export default function ChatPage() {
   const quoteSelectionRef = useRef<HTMLDivElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
+  const actionMessage = actionMessageId ? messages.find((message) => message.id === actionMessageId) || null : null;
 
   const formatFileSize = (sizeBytes: number) => {
     if (sizeBytes < 1024) {
@@ -1317,7 +1318,7 @@ export default function ChatPage() {
                                 {message.updatedAt && !message.deletedAt && !isCallEvent ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
                                 {ownMessage && !isCallEvent ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
                               </div>
-                              {!message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
+                              {!isMobileLayout && !message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
                                 <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
                                   <div className={styles.reactionPickerMenu}>
                                     {EMOJI_OPTIONS.map((emoji) => (
@@ -1469,6 +1470,30 @@ export default function ChatPage() {
         <button type="button" className={styles.imageLightbox} onClick={() => setPreviewImage(null)}>
           <img src={previewImage.src} alt={previewImage.name} className={styles.imageLightboxMedia} />
         </button>
+      ) : null}
+
+      {isMobileLayout && actionMessage && !actionMessage.deletedAt && actionMessage.kind !== 'call' ? (
+        <div className={styles.mobileActionSheetBackdrop} onClick={() => setActionMessageId(null)}>
+          <div className={styles.mobileActionSheet} onClick={(event) => event.stopPropagation()}>
+            <div className={styles.mobileActionSheetHandle} />
+            <div className={styles.mobileActionSheetPreview}>
+              {actionMessage.replyTo ? <p className={styles.mobileActionSheetReply}>Ответ на: {getReplySnippet(actionMessage.replyTo)}</p> : null}
+              <p className={styles.mobileActionSheetText}>{getMessagePreview(actionMessage)}</p>
+            </div>
+            <div className={styles.mobileActionSheetReactions}>
+              {EMOJI_OPTIONS.map((emoji) => (
+                <button key={emoji} type="button" className={styles.mobileActionSheetEmoji} onClick={() => { toggleReaction(actionMessage.id, emoji); setActionMessageId(null); }}>{emoji}</button>
+              ))}
+            </div>
+            <div className={styles.mobileActionSheetActions}>
+              <button type="button" className={styles.mobileActionSheetPrimary} onClick={() => beginReply(actionMessage)}>Ответить</button>
+              {actionMessage.kind === 'text' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => beginQuote(actionMessage)}>Цитировать</button> : null}
+              {actionMessage.senderId === user.id && actionMessage.kind !== 'voice' && actionMessage.kind !== 'file' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => { setEditingMessageId(actionMessage.id); setEditingText(actionMessage.content); setActionMessageId(null); }}>Изменить</button> : null}
+              {actionMessage.senderId === user.id ? <button type="button" className={styles.mobileActionSheetDanger} onClick={() => deleteMessage(actionMessage.id)}>Удалить</button> : null}
+              <button type="button" className={styles.mobileActionSheetCancel} onClick={() => setActionMessageId(null)}>Отмена</button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </>
   );

@@ -888,6 +888,112 @@
   color: white;
 }
 
+.mobileActionSheetBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.mobileActionSheet {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 14px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  border-radius: 28px 28px 22px 22px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22);
+}
+
+.mobileActionSheetHandle {
+  width: 42px;
+  height: 5px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.14);
+}
+
+.mobileActionSheetPreview {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.mobileActionSheetReply,
+.mobileActionSheetText {
+  margin: 0;
+}
+
+.mobileActionSheetReply {
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobileActionSheetText {
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.mobileActionSheetReactions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mobileActionSheetEmoji {
+  border: 0;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.05);
+  font-size: 22px;
+}
+
+.mobileActionSheetActions {
+  display: grid;
+  gap: 8px;
+}
+
+.mobileActionSheetButton,
+.mobileActionSheetPrimary,
+.mobileActionSheetDanger,
+.mobileActionSheetCancel {
+  width: 100%;
+  border: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mobileActionSheetButton {
+  background: rgba(15, 23, 42, 0.05);
+  color: #111827;
+}
+
+.mobileActionSheetPrimary {
+  background: linear-gradient(135deg, #1f6fff, #13b7a6);
+  color: white;
+}
+
+.mobileActionSheetDanger {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b42318;
+}
+
+.mobileActionSheetCancel {
+  background: rgba(15, 23, 42, 0.08);
+  color: #475467;
+}
+
 .composerForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1263,13 +1369,13 @@
 
   .messageBubbleOwn,
   .messageBubblePeer {
-    max-width: min(82vw, 100%);
+    max-width: min(88vw, 100%);
     padding: 12px 14px 8px;
     border-radius: 22px;
   }
 
   .messageBubbleMedia {
-    max-width: min(82vw, 100%);
+    max-width: min(88vw, 100%);
     padding: 0;
   }
 
@@ -1297,6 +1403,14 @@
 
   .messageTools {
     align-items: flex-start;
+  }
+
+  .mobileActionSheetBackdrop {
+    padding: 12px;
+  }
+
+  .mobileActionSheet {
+    width: 100%;
   }
 
   .quoteEditorActions {
