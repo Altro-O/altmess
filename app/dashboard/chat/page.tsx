@@ -498,7 +498,14 @@ export default function ChatPage() {
 
         setIceServers(rtcResponse.iceServers);
 
-        const socket = io({ auth: { token } });
+        const socket = io({
+          auth: { token },
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 1000,
+          reconnectionDelayMax: 5000,
+          timeout: 20000,
+        });
         socketRef.current = socket;
 
         socket.on('connect', syncVisibility);

@@ -30,6 +30,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(call.mode === 'video');
   const [videoUnavailable, setVideoUnavailable] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
@@ -38,9 +40,17 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unstableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringtoneAudioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringtoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearUnstableConnectionTimer = () => {
+    if (unstableConnectionTimerRef.current) {
+      clearTimeout(unstableConnectionTimerRef.current);
+      unstableConnectionTimerRef.current = null;
+    }
+  };
 
   const clearDisconnectTimer = () => {
     if (disconnectTimerRef.current) {
@@ -55,7 +65,20 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       setPhase('ended');
       closeResources();
       onClose();
-    }, 30000);
+    }, 45000);
+  };
+
+  const scheduleUnstableReconnect = (notice: string, restartIce = false) => {
+    clearUnstableConnectionTimer();
+    unstableConnectionTimerRef.current = setTimeout(() => {
+      setConnectionNotice(notice);
+      setPhase('connecting');
+      if (restartIce) {
+        peerConnectionRef.current?.restartIce?.();
+      }
+      scheduleReconnectTimeout();
+      unstableConnectionTimerRef.current = null;
+    }, 5000);
   };
 
   const stopRingtone = () => {
@@ -193,7 +216,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     },
     video: call.mode === 'video'
       ? {
-          facingMode: 'user',
+          facingMode: { ideal: cameraFacingMode },
           width: { ideal: 640, max: 960 },
           height: { ideal: 360, max: 540 },
           frameRate: { ideal: 24, max: 30 },
@@ -206,6 +229,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     setConnectionNotice('');
     setVideoEnabled(call.mode === 'video');
     setVideoUnavailable(false);
+    setCameraFacingMode('user');
+    clearUnstableConnectionTimer();
     clearDisconnectTimer();
   }, [call]);
 
@@ -225,6 +250,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
   useEffect(() => () => {
     stopRingtone();
+    clearUnstableConnectionTimer();
     ringtoneAudioContextRef.current?.close().catch(() => null);
     ringtoneAudioContextRef.current = null;
   }, []);
@@ -240,6 +266,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
     const handleSocketReconnect = () => {
       setConnectionNotice('');
+      clearUnstableConnectionTimer();
       clearDisconnectTimer();
     };
 
@@ -314,6 +341,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
   const closeResources = () => {
     clearDisconnectTimer();
+    clearUnstableConnectionTimer();
     stopRingtone();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
@@ -384,6 +412,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       setConnectionNotice('');
+      clearUnstableConnectionTimer();
       clearDisconnectTimer();
       setPhase('active');
     };
@@ -547,6 +576,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       if (peerConnection.connectionState === 'connected') {
         setPhase('active');
         setConnectionNotice('');
+        clearUnstableConnectionTimer();
         clearDisconnectTimer();
       }
 
@@ -555,36 +585,27 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       if (peerConnection.connectionState === 'failed') {
-        setConnectionNotice('Слабое соединение. Пытаемся восстановить звонок...');
-        setPhase('connecting');
-        peerConnection.restartIce?.();
-        scheduleReconnectTimeout();
+        scheduleUnstableReconnect('Слабое соединение. Пытаемся восстановить звонок...', true);
       }
 
-      if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'closed') {
-        setConnectionNotice('Соединение нестабильно. Ждем восстановления...');
-        setPhase('connecting');
-        scheduleReconnectTimeout();
+      if (peerConnection.connectionState === 'disconnected') {
+        scheduleUnstableReconnect('Соединение нестабильно. Ждем восстановления...', true);
       }
     };
 
     peerConnection.oniceconnectionstatechange = () => {
       if (peerConnection.iceConnectionState === 'connected' || peerConnection.iceConnectionState === 'completed') {
         setConnectionNotice('');
+        clearUnstableConnectionTimer();
         clearDisconnectTimer();
       }
 
       if (peerConnection.iceConnectionState === 'disconnected') {
-        setConnectionNotice('Слабое соединение. Пытаемся удержать звонок...');
-        setPhase('connecting');
-        scheduleReconnectTimeout();
+        scheduleUnstableReconnect('Слабое соединение. Пытаемся удержать звонок...');
       }
 
       if (peerConnection.iceConnectionState === 'failed') {
-        setConnectionNotice('Не удалось быстро восстановить соединение. Пробуем переподключиться...');
-        setPhase('connecting');
-        peerConnection.restartIce?.();
-        scheduleReconnectTimeout();
+        scheduleUnstableReconnect('Не удалось быстро восстановить соединение. Пробуем переподключиться...', true);
       }
     };
 
@@ -666,6 +687,63 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     });
   };
 
+  const switchCamera = async () => {
+    if (call.mode !== 'video' || isSwitchingCamera) {
+      return;
+    }
+
+    const currentStream = localStreamRef.current;
+    if (!currentStream) {
+      return;
+    }
+
+    try {
+      setIsSwitchingCamera(true);
+      const nextFacingMode = cameraFacingMode === 'user' ? 'environment' : 'user';
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: nextFacingMode },
+          width: { ideal: 640, max: 960 },
+          height: { ideal: 360, max: 540 },
+          frameRate: { ideal: 24, max: 30 },
+        },
+      });
+      const nextVideoTrack = videoStream.getVideoTracks()[0];
+
+      if (!nextVideoTrack) {
+        videoStream.getTracks().forEach((track) => track.stop());
+        throw new Error('Не удалось получить изображение с другой камеры');
+      }
+
+      nextVideoTrack.contentHint = 'motion';
+      const peerConnection = peerConnectionRef.current;
+      const videoSender = peerConnection?.getSenders().find((sender) => sender.track?.kind === 'video');
+      await videoSender?.replaceTrack(nextVideoTrack);
+
+      currentStream.getVideoTracks().forEach((track) => {
+        currentStream.removeTrack(track);
+        track.stop();
+      });
+      currentStream.addTrack(nextVideoTrack);
+
+      const nextStream = new MediaStream([...currentStream.getAudioTracks(), nextVideoTrack]);
+      localStreamRef.current = nextStream;
+      setLocalStream(nextStream);
+      setCameraFacingMode(nextFacingMode);
+      setVideoEnabled(true);
+      setVideoUnavailable(false);
+      setConnectionNotice('Камера переключена');
+      clearUnstableConnectionTimer();
+      clearDisconnectTimer();
+    } catch (error) {
+      console.error('Failed to switch camera:', error);
+      setConnectionNotice(error instanceof Error ? error.message : 'Не удалось переключить камеру');
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  };
+
   const closeOverlay = () => {
     closeResources();
     onClose();
@@ -741,9 +819,14 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
               <span className={styles.controlTitle}>Завершить</span>
             </button>
             {call.mode === 'video' ? (
-              <button className={styles.controlWide} onClick={toggleVideo}>
-                <span className={styles.controlTitle}>{videoEnabled ? 'Камера вкл' : 'Камера выкл'}</span>
-              </button>
+              <>
+                <button className={styles.controlWide} onClick={toggleVideo}>
+                  <span className={styles.controlTitle}>{videoEnabled ? 'Камера вкл' : 'Камера выкл'}</span>
+                </button>
+                <button className={styles.controlWide} onClick={switchCamera} disabled={isSwitchingCamera || videoUnavailable}>
+                  <span className={styles.controlTitle}>{isSwitchingCamera ? 'Переключаем...' : 'Сменить камеру'}</span>
+                </button>
+              </>
             ) : (
               <button className={styles.controlWide} onClick={closeOverlay}>
                 <span className={styles.controlTitle}>Скрыть</span>
