@@ -84,6 +84,10 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     }, 5000);
   };
 
+  const notifyConnectionRestored = () => {
+    socket.emit('call:connection-restored', { callId: call.callId }, () => null);
+  };
+
   const stopRingtone = () => {
     if (ringtoneIntervalRef.current) {
       clearInterval(ringtoneIntervalRef.current);
@@ -571,7 +575,10 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
       setRemoteStream(incomingStream);
       setPhase('active');
+      setConnectionNotice('');
+      clearUnstableConnectionTimer();
       clearDisconnectTimer();
+      notifyConnectionRestored();
       ensureRemotePlayback();
     };
 
@@ -581,6 +588,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
         setConnectionNotice('');
         clearUnstableConnectionTimer();
         clearDisconnectTimer();
+        notifyConnectionRestored();
       }
 
       if (peerConnection.connectionState === 'connecting') {
@@ -601,6 +609,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
         setConnectionNotice('');
         clearUnstableConnectionTimer();
         clearDisconnectTimer();
+        notifyConnectionRestored();
       }
 
       if (peerConnection.iceConnectionState === 'disconnected') {

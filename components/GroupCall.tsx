@@ -37,6 +37,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const closingRef = useRef(false);
+  const offeredUsersRef = useRef<Set<string>>(new Set());
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -72,6 +73,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       connection.close();
       peerConnectionsRef.current.delete(userId);
     }
+    offeredUsersRef.current.delete(userId);
 
     setRemoteStreams((prev) => {
       const next = { ...prev };
@@ -125,6 +127,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
   const createOfferForUser = async (user: Contact) => {
     const connection = ensurePeerConnection(user);
+    offeredUsersRef.current.add(user.id);
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
     socket.emit('group-call:offer', {
@@ -175,6 +178,22 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     joinCall();
   }, [call.initiator]);
+
+  useEffect(() => {
+    if (!localStreamRef.current || phase !== 'active') {
+      return;
+    }
+
+    activeParticipants.forEach(([, user]) => {
+      if (offeredUsersRef.current.has(user.id)) {
+        return;
+      }
+
+      createOfferForUser(user).catch((error) => {
+        console.error('Failed to create group call offer:', error);
+      });
+    });
+  }, [activeParticipants, phase]);
 
   useEffect(() => {
     const handleIncomingOffer = async ({ groupId, fromUserId, offer }: { groupId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
@@ -382,12 +401,26 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
                       playsInline
                       autoPlay
                     />
-                  ) : (
-                    <div className={styles.audioStageMini}>{getFallbackLabel(user)}</div>
-                  )}
-                  <div className={styles.groupTileLabel}>{user.displayName || user.username}</div>
-                </div>
-              ))}
+                ) : (
+                  <div className={styles.audioStageMini}>{getFallbackLabel(user)}</div>
+                )}
+                <div className={styles.groupTileLabel}>{user.displayName || user.username}</div>
+                {remoteStreams[userId] ? (
+                  <audio
+                    ref={(node) => {
+                      if (node && remoteStreams[userId]) {
+                        node.srcObject = remoteStreams[userId];
+                        node.muted = false;
+                        void node.play().catch(() => null);
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    className={styles.remoteAudio}
+                  />
+                ) : null}
+              </div>
+            ))}
             </div>
           </div>
 

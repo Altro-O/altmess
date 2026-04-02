@@ -568,7 +568,10 @@ export default function ChatPage() {
         });
         socketRef.current = socket;
 
-        socket.on('connect', syncVisibility);
+        socket.on('connect', () => {
+          setPageError((prev) => (prev === 'Не удалось подключиться к realtime-серверу' ? '' : prev));
+          syncVisibility();
+        });
         document.addEventListener('visibilitychange', syncVisibility);
         window.addEventListener('focus', syncVisibility);
         window.addEventListener('blur', syncVisibility);
@@ -1152,6 +1155,48 @@ export default function ChatPage() {
       setIsUpdatingGroupMembers(false);
     }
   }, [activeContactId, pinnedChatIds, token]);
+
+  const leaveGroup = useCallback(async () => {
+    if (!token || !activeContact || activeContact.type !== 'group') {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/groups/${activeContact.id.slice('group:'.length)}/leave`, {
+        method: 'POST',
+        token,
+      });
+      setSidebarItems((prev) => prev.filter((contact) => contact.id !== activeContact.id));
+      setActiveContactId(null);
+      setShowDialogProfile(false);
+      setMessages([]);
+      setPinnedMessages([]);
+      setPageError('');
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось выйти из группы');
+    }
+  }, [activeContact, token]);
+
+  const deleteGroup = useCallback(async () => {
+    if (!token || !activeContact || activeContact.type !== 'group') {
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/groups/${activeContact.id.slice('group:'.length)}`, {
+        method: 'DELETE',
+        token,
+      });
+      setSidebarItems((prev) => prev.filter((contact) => contact.id !== activeContact.id));
+      setActiveContactId(null);
+      setShowDialogProfile(false);
+      setMessages([]);
+      setPinnedMessages([]);
+      setPageError('');
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось удалить группу');
+    }
+  }, [activeContact, token]);
 
   useEffect(() => {
     const currentContact = sidebarItems.find((contact) => contact.id === activeContactId) || null;
@@ -2414,6 +2459,8 @@ export default function ChatPage() {
             <div className={styles.dialogProfileActions}>
               <button type="button" className={styles.secondaryButton} onClick={() => togglePinnedChat(activeContact.id)}>{isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}</button>
               <button type="button" className={styles.secondaryButton} onClick={() => { setShowDialogProfile(false); setShowMessageSearch(true); }}>Поиск в диалоге</button>
+              {activeContact.type === 'group' && !isActiveGroupOwner ? <button type="button" className={styles.secondaryButton} onClick={leaveGroup}>Выйти из группы</button> : null}
+              {activeContact.type === 'group' && isActiveGroupOwner ? <button type="button" className={styles.secondaryButton} onClick={deleteGroup}>Удалить группу</button> : null}
             </div>
             {activeContact.type === 'group' ? (
               <>

@@ -500,13 +500,7 @@ app.prepare().then(async () => {
     [...activeCalls.values()]
       .filter((call) => ['ringing', 'active'].includes(call.status) && (call.callerId === userId || call.recipientId === userId))
       .forEach((call) => {
-        const timeoutKey = `${call.id}:${userId}`;
-        const timeout = callReconnectTimeouts.get(timeoutKey);
-        if (timeout) {
-          clearTimeout(timeout);
-          callReconnectTimeouts.delete(timeoutKey);
-          emitToUser(getCallPeerId(call, userId), 'call:peer-reconnected', { callId: call.id, userId });
-        }
+        restoreCallConnection(call.id, userId);
       });
   }
 
@@ -601,6 +595,24 @@ app.prepare().then(async () => {
       clearTimeout(timeout);
       callReconnectTimeouts.delete(timeoutKey);
     }
+  }
+
+  function restoreCallConnection(callId, userId) {
+    const call = activeCalls.get(String(callId));
+    if (!call || !['ringing', 'active'].includes(call.status) || (call.callerId !== userId && call.recipientId !== userId)) {
+      return false;
+    }
+
+    const timeoutKey = `${call.id}:${userId}`;
+    const timeout = callReconnectTimeouts.get(timeoutKey);
+    if (!timeout) {
+      return false;
+    }
+
+    clearTimeout(timeout);
+    callReconnectTimeouts.delete(timeoutKey);
+    emitToUser(getCallPeerId(call, userId), 'call:peer-reconnected', { callId: call.id, userId });
+    return true;
   }
 
   function scheduleCallReconnectTimeout(call, disconnectedUserId) {
@@ -1054,6 +1066,57 @@ app.prepare().then(async () => {
       members: buildGroupMembers(db, group, publicUser),
       availableContacts: buildAvailableGroupContacts(directDialogs, group, req.user.id),
     });
+  });
+
+  expressApp.post('/api/groups/:groupId/leave', authMiddleware, async (req, res) => {
+    const db = readDb();
+    const group = db.groups.find((entry) => entry.id === String(req.params.groupId || ''));
+
+    if (!group || !isGroupMember(group, req.user.id)) {
+      res.status(404).json({ error: 'Группа не найдена' });
+      return;
+    }
+
+    if (isGroupOwner(group, req.user.id)) {
+      res.status(400).json({ error: 'Владелец не может выйти из группы без удаления. Сначала удалите группу.' });
+      return;
+    }
+
+    group.memberIds = group.memberIds.filter((memberId) => memberId !== req.user.id);
+    await writeDb(db);
+
+    emitToUser(req.user.id, 'group:removed', { groupId: group.id });
+    group.memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'group:update', { group: buildGroupContact(db, group, memberId, sanitizeMessage) });
+    });
+
+    res.json({ ok: true });
+  });
+
+  expressApp.delete('/api/groups/:groupId', authMiddleware, async (req, res) => {
+    const db = readDb();
+    const groupId = String(req.params.groupId || '');
+    const group = db.groups.find((entry) => entry.id === groupId);
+
+    if (!group || !isGroupMember(group, req.user.id)) {
+      res.status(404).json({ error: 'Группа не найдена' });
+      return;
+    }
+
+    if (!isGroupOwner(group, req.user.id)) {
+      res.status(403).json({ error: 'Удалить группу может только владелец' });
+      return;
+    }
+
+    db.groups = db.groups.filter((entry) => entry.id !== groupId);
+    db.messages = db.messages.filter((message) => message.groupId !== groupId);
+    await writeDb(db);
+
+    group.memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'group:removed', { groupId });
+    });
+
+    res.json({ ok: true });
   });
 
   expressApp.get('/api/preferences', authMiddleware, (req, res) => {
@@ -1620,6 +1683,11 @@ app.prepare().then(async () => {
       persistCallLog(db, storedCall, currentUser.id).catch((error) => {
         console.error('Failed to persist ended call log:', error);
       });
+    });
+
+    socket.on('call:connection-restored', ({ callId }, callback) => {
+      const restored = restoreCallConnection(callId, currentUser.id);
+      callback?.({ ok: restored });
     });
 
     socket.on('group-call:start', ({ groupId, mode }, callback) => {
