@@ -8,6 +8,8 @@ import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
 import GroupCall, { type GroupCallSession } from '../../../components/GroupCall';
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
+import ChatHeader from '../../../components/chat/ChatHeader';
+import ChatSidebar from '../../../components/chat/ChatSidebar';
 import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
@@ -1960,121 +1962,35 @@ export default function ChatPage() {
   return (
     <>
       <div className={styles.chatPage}>
-        <aside className={`${styles.sidebar} ${showMobileChat ? styles.sidebarHiddenMobile : ''}`}>
-          <div className={styles.sidebarHeader}>
-            <div>
-              <h1 className={styles.sidebarTitle}>Диалоги</h1>
-              <p className={styles.sidebarText}>Личные чаты, группы и быстрый доступ к недавним разговорам.</p>
-            </div>
-            <button type="button" className={styles.secondaryButton} onClick={() => setShowCreateGroupModal(true)}>Новая группа</button>
-          </div>
-
-          <div className={styles.sidebarSegments}>
-            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'all' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('all')}>Все</button>
-            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'direct' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('direct')}>Личные</button>
-            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'group' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('group')}>Группы</button>
-          </div>
-
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            className={styles.searchInput}
-            placeholder="Поиск по логину или email"
-          />
-
-          <div className={styles.contactList}>
-            {visibleSidebarItems.map((contact) => (
-              <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => handleSelectContact(contact.id)}>
-                <UserAvatar
-                  avatarUrl={contact.avatarUrl}
-                  alt={contact.displayName || contact.username}
-                  fallback={getAvatarLabel(contact)}
-                  className={`${styles.avatar} ${styles[`avatar_${contact.avatarColor || 'ocean'}`]}`}
-                  imageClassName={styles.avatarImage}
-                />
-                <span className={styles.contactMeta}>
-                  <span className={styles.contactNameRow}>
-                    <span className={styles.contactNameWrap}>
-                      {pinnedChatIds.includes(contact.id) ? <span className={styles.pinnedMark}>Закреплен</span> : null}
-                      <span className={styles.contactName}>{contact.displayName || contact.username}</span>
-                    </span>
-                    {contact.unreadCount ? <span className={styles.unreadBadge}>{contact.unreadCount}</span> : null}
-                  </span>
-                  <span className={styles.contactPreview}>{contact.lastMessage ? getMessagePreview(contact.lastMessage) : (contact.bio || contact.email)}</span>
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className={styles.pinToggle}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    togglePinnedChat(contact.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      togglePinnedChat(contact.id);
-                    }
-                  }}
-                >
-                  {pinnedChatIds.includes(contact.id) ? '★' : '☆'}
-                </span>
-              </button>
-            ))}
-          </div>
-        </aside>
+        <ChatSidebar
+          sidebarItems={visibleSidebarItems}
+          activeContactId={activeContactId}
+          searchQuery={searchQuery}
+          pinnedChatIds={pinnedChatIds}
+          showMobileChat={showMobileChat}
+          dialogScope={dialogScope}
+          onSearchChange={setSearchQuery}
+          onOpenCreateGroup={() => setShowCreateGroupModal(true)}
+          onScopeChange={setDialogScope}
+          onSelectContact={handleSelectContact}
+          onTogglePin={togglePinnedChat}
+        />
 
         <section className={`${styles.panel} ${showMobileChat ? styles.panelVisibleMobile : styles.panelHiddenMobile}`}>
           {activeContact ? (
             <>
-              <div className={styles.panelHeader}>
-                <div className={styles.panelIdentityButton} role="button" tabIndex={0} onClick={() => setShowDialogProfile(true)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setShowDialogProfile(true); } }}>
-                <div className={styles.panelIdentity}>
-                  {isMobileLayout ? (
-                    <button type="button" className={styles.backButton} onClick={(event) => { event.stopPropagation(); setShowMobileChat(false); }}>
-                      ←
-                    </button>
-                  ) : null}
-                  <UserAvatar
-                    avatarUrl={activeContact.avatarUrl}
-                    alt={activeContact.displayName || activeContact.username}
-                    fallback={getAvatarLabel(activeContact)}
-                    className={`${styles.headerAvatar} ${styles[`avatar_${activeContact.avatarColor || 'ocean'}`]}`}
-                    imageClassName={styles.avatarImage}
-                  />
-                  <div>
-                    <div className={styles.panelEyebrow}>{activeContact.type === 'group' ? 'Группа' : 'Личный чат'}</div>
-                    <h2 className={styles.panelTitle}>{activeContact.type === 'group' ? activeContact.displayName || activeContact.username : `Чат с ${activeContact.displayName || activeContact.username}`}</h2>
-                    <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
-                  </div>
-                </div>
-                </div>
-                <div className={styles.headerActions}>
-                  <button type="button" className={styles.headerIconButton} onClick={() => setShowMessageSearch((prev) => !prev)} aria-label="Поиск по диалогу" title="Поиск по диалогу">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M10.5 4a6.5 6.5 0 1 0 4.03 11.6l4.43 4.44 1.04-1.04-4.44-4.43A6.5 6.5 0 0 0 10.5 4Zm0 1.5a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z" fill="currentColor"/></svg>
-                  </button>
-                  <button type="button" className={styles.headerIconButton} onClick={() => setShowDialogProfile(true)} aria-label="Медиа и информация" title="Медиа и информация">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm0 1.5a.5.5 0 0 0-.5.5v8.12l3.35-3.35a1 1 0 0 1 1.42 0l1.73 1.73 3.15-3.15a1 1 0 0 1 1.41 0l1.94 1.94V6a.5.5 0 0 0-.5-.5H6Zm12 13a.5.5 0 0 0 .5-.5v-3.44l-2.65-2.65-3.15 3.15a1 1 0 0 1-1.41 0l-1.73-1.73-3.06 3.06V18c0 .28.22.5.5.5h12ZM9 8.25a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z" fill="currentColor"/></svg>
-                  </button>
-                  <button type="button" className={styles.headerIconButton} onClick={() => togglePinnedChat(activeContact.id)} aria-label={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'} title={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}>
-                    {isActiveChatPinned ? '★' : '☆'}
-                  </button>
-                  {!isActiveGroupChat ? <button type="button" className={styles.headerIconButton} onClick={() => startCall('audio')} aria-label="Аудиозвонок" title="Аудиозвонок">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
-                  </button> : null}
-                  {!isActiveGroupChat ? <button type="button" className={styles.headerVideoButton} onClick={() => startCall('video')} aria-label="Видеозвонок" title="Видеозвонок">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
-                  </button> : null}
-                  {isActiveGroupChat ? <button type="button" className={styles.headerIconButton} onClick={() => startGroupCall('audio')} aria-label="Групповой аудиозвонок" title="Групповой аудиозвонок">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
-                  </button> : null}
-                  {isActiveGroupChat ? <button type="button" className={styles.headerVideoButton} onClick={() => startGroupCall('video')} aria-label="Групповой видеозвонок" title="Групповой видеозвонок">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
-                  </button> : null}
-                </div>
-              </div>
+              <ChatHeader
+                contact={activeContact}
+                isMobileLayout={isMobileLayout}
+                isActiveChatPinned={isActiveChatPinned}
+                isActiveGroupChat={isActiveGroupChat}
+                onBack={() => setShowMobileChat(false)}
+                onToggleSearch={() => setShowMessageSearch((prev) => !prev)}
+                onShowProfile={() => setShowDialogProfile(true)}
+                onTogglePin={() => togglePinnedChat(activeContact.id)}
+                onStartDirectCall={startCall}
+                onStartGroupCall={startGroupCall}
+              />
 
               {pinnedMessages.length > 0 ? (
                 <div className={styles.dialogSearchBar}>
