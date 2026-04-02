@@ -47,35 +47,35 @@ export default function LoginPage() {
       <section className={styles.hero}>
         <div className={styles.badge}>
           <span className={styles.badgeDot} />
-          End-to-end messaging workspace
+          Личный мессенджер для общения каждый день
         </div>
         <h1 className={styles.headline}>
           Общение,
           <span className={styles.accent}>которое ощущается живым</span>
         </h1>
         <p className={styles.subtext}>
-          Altmess собирает личные чаты, быстрые звонки и защищенную переписку в одном веб-интерфейсе без лишней тяжести.
+          Пишите, звоните и оставайтесь на связи в одном приложении. Без лишних экранов, лишних настроек и лишнего шума.
         </p>
         <div className={styles.highlights}>
           <article className={styles.highlight}>
             <div className={styles.highlightIcon}>#</div>
             <div>
               <p className={styles.highlightTitle}>Быстрый вход</p>
-              <p className={styles.highlightText}>Легкий онбординг и быстрый доступ к чату без перегруза интерфейса.</p>
+              <p className={styles.highlightText}>Вошли и сразу попали в свои чаты, без сложного старта и перегруженных форм.</p>
             </div>
           </article>
           <article className={styles.highlight}>
             <div className={styles.highlightIcon}>*</div>
             <div>
-              <p className={styles.highlightTitle}>Шифрование сообщений</p>
-              <p className={styles.highlightText}>Подготовленная база под защищенную доставку и дальнейшее усиление сервера.</p>
+              <p className={styles.highlightTitle}>Личное пространство</p>
+              <p className={styles.highlightText}>Личные диалоги, группы, звонки и файлы в одном аккуратном и понятном интерфейсе.</p>
             </div>
           </article>
           <article className={styles.highlight}>
             <div className={styles.highlightIcon}>~</div>
             <div>
               <p className={styles.highlightTitle}>Звонки и чат рядом</p>
-              <p className={styles.highlightText}>Текст, presence и видеозвонок в едином рабочем пространстве.</p>
+              <p className={styles.highlightText}>Текстовые сообщения, голос и видео работают рядом, чтобы не прыгать между сервисами.</p>
             </div>
           </article>
         </div>
@@ -83,17 +83,17 @@ export default function LoginPage() {
 
       <section className={styles.card}>
         <div className={styles.cardHeader}>
-          <p className={styles.eyebrow}>Sign In</p>
+          <p className={styles.eyebrow}>Вход</p>
           <h2 className={styles.title}>С возвращением</h2>
-          <p className={styles.description}>Войдите и сразу попадете в рабочую область мессенджера.</p>
-          <p className={styles.description}>Теперь аккаунт и сообщения общие для всех браузеров и устройств в рамках одного сервера.</p>
+          <p className={styles.description}>Войдите в аккаунт и продолжайте общение с того места, где остановились.</p>
+          <p className={styles.description}>Ваши чаты и группы будут доступны на этом устройстве сразу после входа.</p>
         </div>
 
         {error && <div className={styles.error}>{error}</div>}
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.field}>
-            <label htmlFor="username" className={styles.label}>Имя пользователя</label>
+            <label htmlFor="username" className={styles.label}>Логин</label>
             <input
               id="username"
               type="text"
@@ -117,7 +117,7 @@ export default function LoginPage() {
             />
           </div>
           <button type="submit" disabled={loading} className={styles.submit}>
-            {loading ? 'Входим...' : 'Открыть Altmess'}
+            {loading ? 'Входим...' : 'Войти'}
           </button>
         </form>
 

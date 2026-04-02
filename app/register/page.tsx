@@ -49,14 +49,14 @@ export default function RegisterPage() {
       <section className={styles.hero}>
         <div className={styles.badge}>
           <span className={styles.badgeDot} />
-          Private by default
+          Регистрация за минуту
         </div>
         <h1 className={styles.headline}>
           Создайте
           <span className={styles.accent}>новую точку связи</span>
         </h1>
         <p className={styles.subtext}>
-          Регистрация готовит аккаунт для сообщений, звонков и дальнейшей синхронизации с серверной частью.
+          Создайте аккаунт, чтобы писать сообщения, звонить и собирать близких в групповые чаты.
         </p>
         <div className={styles.highlights}>
           <article className={styles.highlight}>
@@ -69,8 +69,8 @@ export default function RegisterPage() {
           <article className={styles.highlight}>
             <div className={styles.highlightIcon}>@</div>
             <div>
-              <p className={styles.highlightTitle}>Готовность к backend-расширению</p>
-              <p className={styles.highlightText}>Форма уже совместима с дальнейшей доработкой реальной базы и JWT.</p>
+              <p className={styles.highlightTitle}>Один аккаунт для всего</p>
+              <p className={styles.highlightText}>Личные сообщения, группы и звонки будут доступны под одним профилем.</p>
             </div>
           </article>
         </div>
@@ -78,9 +78,9 @@ export default function RegisterPage() {
 
       <section className={styles.card}>
         <div className={styles.cardHeader}>
-          <p className={styles.eyebrow}>Create Account</p>
+          <p className={styles.eyebrow}>Регистрация</p>
           <h2 className={styles.title}>Подключиться к Altmess</h2>
-          <p className={styles.description}>Создайте профиль и откройте доступ к защищенным сообщениям.</p>
+          <p className={styles.description}>Придумайте логин и пароль, чтобы начать общение.</p>
         </div>
 
         {error && <div className={styles.error}>{error}</div>}
@@ -103,7 +103,7 @@ export default function RegisterPage() {
             <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className={styles.input} placeholder="Повторите пароль" />
           </div>
           <button type="submit" disabled={loading} className={styles.submit}>
-            {loading ? 'Создаем аккаунт...' : 'Зарегистрироваться'}
+            {loading ? 'Создаем аккаунт...' : 'Создать аккаунт'}
           </button>
         </form>
 

@@ -26,6 +26,60 @@ function getFallbackLabel(user: Pick<Contact, 'displayName' | 'username'>) {
   return (user.displayName || user.username || '?').slice(0, 2).toUpperCase();
 }
 
+function ParticipantTile({
+  participant,
+  isFeatured,
+  isPinned,
+  isActiveSpeaker,
+  onPin,
+}: {
+  participant: { id: string; label: string; stream: MediaStream | null; hasVideo: boolean; fallback: string; isSelf: boolean };
+  isFeatured: boolean;
+  isPinned: boolean;
+  isActiveSpeaker: boolean;
+  onPin: () => void;
+}) {
+  return (
+    <div className={`${styles.groupTile} ${isFeatured ? styles.groupTileFeatured : ''} ${isActiveSpeaker ? styles.groupTileSpeaking : ''}`}>
+      {participant.hasVideo && participant.stream ? (
+        <video
+          className={styles.groupVideo}
+          ref={(node) => {
+            if (node && participant.stream) {
+              node.srcObject = participant.stream;
+              node.muted = participant.isSelf;
+              void node.play().catch(() => null);
+            }
+          }}
+          playsInline
+          autoPlay
+          muted={participant.isSelf}
+        />
+      ) : (
+        <div className={styles.audioStageMini}>{participant.fallback}</div>
+      )}
+      <div className={styles.groupTileLabel}>{participant.label}</div>
+      <button type="button" className={`${styles.groupTilePin} ${isPinned ? styles.groupTilePinActive : ''}`} onClick={onPin}>
+        {isPinned ? 'Открепить' : 'Закрепить'}
+      </button>
+      {!participant.isSelf && participant.stream ? (
+        <audio
+          ref={(node) => {
+            if (node && participant.stream) {
+              node.srcObject = participant.stream;
+              node.muted = false;
+              void node.play().catch(() => null);
+            }
+          }}
+          autoPlay
+          playsInline
+          className={styles.remoteAudio}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export default function GroupCall({ socket, call, currentUserId, iceServers, onClose }: GroupCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'connecting' : 'incoming');
   const [notice, setNotice] = useState('');
@@ -35,16 +89,91 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const [videoUnavailable, setVideoUnavailable] = useState(false);
   const [participants, setParticipants] = useState<Record<string, Contact>>({});
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null);
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const closingRef = useRef(false);
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserMapRef = useRef<Map<string, { analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array<ArrayBufferLike> }>>(new Map());
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
     [currentUserId, participants],
   );
   const participantCount = activeParticipants.length + 1;
+  const participantEntries = useMemo(() => {
+    const selfEntry = {
+      id: 'self',
+      label: 'Вы',
+      stream: localStream,
+      hasVideo: Boolean(localStream?.getVideoTracks().length),
+      isSelf: true,
+      fallback: videoUnavailable ? 'Без камеры' : 'Вы',
+    };
+
+    const others = activeParticipants.map(([userId, user]) => ({
+      id: userId,
+      label: user.displayName || user.username,
+      stream: remoteStreams[userId] || null,
+      hasVideo: Boolean(remoteStreams[userId]?.getVideoTracks().length),
+      isSelf: false,
+      fallback: getFallbackLabel(user),
+    }));
+
+    return [selfEntry, ...others];
+  }, [activeParticipants, localStream, remoteStreams, videoUnavailable]);
+  const featuredParticipantId = pinnedParticipantId || activeSpeakerId || (participantCount > 6 ? 'self' : null);
+  const featuredParticipant = featuredParticipantId ? participantEntries.find((participant) => participant.id === featuredParticipantId) || participantEntries[0] : null;
+  const railParticipants = featuredParticipant ? participantEntries.filter((participant) => participant.id !== featuredParticipant.id) : [];
+
+  const ensureAudioContext = () => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) {
+        return null;
+      }
+      audioContextRef.current = new AudioContextClass();
+    }
+
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(() => null);
+    }
+
+    return audioContextRef.current;
+  };
+
+  const attachAudioAnalyser = (participantId: string, stream: MediaStream | null) => {
+    if (!stream || !stream.getAudioTracks().length || analyserMapRef.current.has(participantId)) {
+      return;
+    }
+
+    const context = ensureAudioContext();
+    if (!context) {
+      return;
+    }
+
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    analyserMapRef.current.set(participantId, { analyser, source, data: new Uint8Array(analyser.frequencyBinCount) });
+  };
+
+  const detachAudioAnalyser = (participantId: string) => {
+    const entry = analyserMapRef.current.get(participantId);
+    if (!entry) {
+      return;
+    }
+
+    entry.source.disconnect();
+    analyserMapRef.current.delete(participantId);
+  };
 
   const createLocalMedia = async () => {
     let stream: MediaStream;
@@ -86,6 +215,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     localStreamRef.current = stream;
     setLocalStream(stream);
+    attachAudioAnalyser('self', stream);
     return stream;
   };
 
@@ -98,6 +228,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       peerConnectionsRef.current.delete(userId);
     }
     pendingIceCandidatesRef.current.delete(userId);
+    detachAudioAnalyser(userId);
     setRemoteStreams((prev) => {
       const next = { ...prev };
       delete next[userId];
@@ -112,6 +243,10 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     localStreamRef.current = null;
     setLocalStream(null);
     setRemoteStreams({});
+    analyserMapRef.current.forEach((entry) => entry.source.disconnect());
+    analyserMapRef.current.clear();
+    audioContextRef.current?.close().catch(() => null);
+    audioContextRef.current = null;
   };
 
   const ensurePeerConnection = (user: Contact) => {
@@ -142,6 +277,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       setRemoteStreams((prev) => ({ ...prev, [user.id]: stream }));
+      attachAudioAnalyser(user.id, stream);
     };
 
     if (call.mode === 'video' && localStreamRef.current?.getVideoTracks().length === 0) {
@@ -342,6 +478,26 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     cleanupAll();
   }, [call.groupId, socket]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      let loudestId: string | null = null;
+      let loudestLevel = 0;
+
+      analyserMapRef.current.forEach((entry, participantId) => {
+        entry.analyser.getByteFrequencyData(entry.data as unknown as Uint8Array<ArrayBuffer>);
+        const avg = entry.data.reduce((sum, value) => sum + value, 0) / Math.max(entry.data.length, 1);
+        if (avg > loudestLevel) {
+          loudestLevel = avg;
+          loudestId = participantId;
+        }
+      });
+
+      setActiveSpeakerId(loudestLevel > 24 ? loudestId : null);
+    }, 350);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const leaveCall = () => {
     closingRef.current = true;
     socket.emit('group-call:leave', { groupId: call.groupId }, () => {
@@ -401,67 +557,47 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
             <span>{call.mode === 'video' ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'}</span>
             <span>Участников в звонке: {activeParticipants.length + 1}</span>
             <span>{['Вы', ...activeParticipants.map(([, user]) => user.displayName || user.username)].join(' • ')}</span>
+            {activeSpeakerId ? <span>Сейчас говорит: {participantEntries.find((participant) => participant.id === activeSpeakerId)?.label || 'Участник'}</span> : null}
             {notice ? <p className={styles.notice}>{notice}</p> : null}
           </div>
 
           <div className={styles.groupStage}>
-            <div className={`${styles.groupGrid} ${participantCount <= 2 ? styles.groupGridTwo : participantCount <= 4 ? styles.groupGridFour : styles.groupGridCrowded}`}>
-              <div className={styles.groupTile}>
-                {call.mode === 'video' && localStream ? (
-                  <video
-                    className={styles.groupVideo}
-                    ref={(node) => {
-                      if (node && localStream) {
-                        node.srcObject = localStream;
-                        node.muted = true;
-                        void node.play().catch(() => null);
-                      }
-                    }}
-                    playsInline
-                    autoPlay
-                    muted
-                  />
-                ) : (
-                  <div className={styles.audioStageMini}>{videoUnavailable ? 'Без камеры' : 'Вы'}</div>
-                )}
-                <div className={styles.groupTileLabel}>Вы</div>
-              </div>
-
-              {activeParticipants.map(([userId, user]) => (
-                <div key={userId} className={styles.groupTile}>
-                  {call.mode === 'video' && remoteStreams[userId] ? (
-                    <video
-                      className={styles.groupVideo}
-                      ref={(node) => {
-                        if (node && remoteStreams[userId]) {
-                          node.srcObject = remoteStreams[userId];
-                          void node.play().catch(() => null);
-                        }
-                      }}
-                      playsInline
-                      autoPlay
+            {featuredParticipant ? (
+              <div className={styles.groupFeaturedLayout}>
+                <ParticipantTile
+                  participant={featuredParticipant}
+                  isFeatured
+                  isPinned={pinnedParticipantId === featuredParticipant.id}
+                  isActiveSpeaker={activeSpeakerId === featuredParticipant.id}
+                  onPin={() => setPinnedParticipantId((prev) => (prev === featuredParticipant.id ? null : featuredParticipant.id))}
+                />
+                <div className={styles.groupParticipantRail}>
+                  {railParticipants.map((participant) => (
+                    <ParticipantTile
+                      key={participant.id}
+                      participant={participant}
+                      isFeatured={false}
+                      isPinned={pinnedParticipantId === participant.id}
+                      isActiveSpeaker={activeSpeakerId === participant.id}
+                      onPin={() => setPinnedParticipantId((prev) => (prev === participant.id ? null : participant.id))}
                     />
-                ) : (
-                  <div className={styles.audioStageMini}>{getFallbackLabel(user)}</div>
-                )}
-                <div className={styles.groupTileLabel}>{user.displayName || user.username}</div>
-                {remoteStreams[userId] ? (
-                  <audio
-                    ref={(node) => {
-                      if (node && remoteStreams[userId]) {
-                        node.srcObject = remoteStreams[userId];
-                        node.muted = false;
-                        void node.play().catch(() => null);
-                      }
-                    }}
-                    autoPlay
-                    playsInline
-                    className={styles.remoteAudio}
-                  />
-                ) : null}
+                  ))}
+                </div>
               </div>
-            ))}
-            </div>
+            ) : (
+              <div className={`${styles.groupGrid} ${participantCount <= 2 ? styles.groupGridTwo : participantCount <= 4 ? styles.groupGridFour : styles.groupGridCrowded}`}>
+                {participantEntries.map((participant) => (
+                  <ParticipantTile
+                    key={participant.id}
+                    participant={participant}
+                    isFeatured={false}
+                    isPinned={pinnedParticipantId === participant.id}
+                    isActiveSpeaker={activeSpeakerId === participant.id}
+                    onPin={() => setPinnedParticipantId((prev) => (prev === participant.id ? null : participant.id))}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className={styles.controls}>
