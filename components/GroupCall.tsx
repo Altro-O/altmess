@@ -6,6 +6,11 @@ import type { Contact } from '../utils/api';
 import styles from '../styles/videoCall.module.css';
 import UserAvatar from './UserAvatar';
 
+const SPEAKING_THRESHOLD = 24;
+const SPEAKING_RELEASE_THRESHOLD = 18;
+const DOMINANT_SPEAKER_SWITCH_RATIO = 1.35;
+const DOMINANT_SPEAKER_HOLD_MS = 1800;
+
 export interface GroupCallSession {
   groupId: string;
   title: string;
@@ -43,7 +48,7 @@ function ParticipantTile({
     <div className={`${styles.groupTile} ${isFeatured ? styles.groupTileFeatured : ''} ${isActiveSpeaker ? styles.groupTileSpeaking : ''}`}>
       {participant.hasVideo && participant.stream ? (
         <video
-          className={styles.groupVideo}
+          className={`${styles.groupVideo} ${isFeatured ? styles.groupVideoFeatured : ''}`}
           ref={(node) => {
             if (node && participant.stream) {
               node.srcObject = participant.stream;
@@ -90,13 +95,18 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const [participants, setParticipants] = useState<Record<string, Contact>>({});
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null);
-  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [activeSpeakerIds, setActiveSpeakerIds] = useState<string[]>([]);
+  const [dominantSpeakerId, setDominantSpeakerId] = useState<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const closingRef = useRef(false);
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserMapRef = useRef<Map<string, { analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array<ArrayBufferLike> }>>(new Map());
+  const activeSpeakerIdsRef = useRef<string[]>([]);
+  const dominantSpeakerIdRef = useRef<string | null>(null);
+  const switchCandidateIdRef = useRef<string | null>(null);
+  const switchCandidateSinceRef = useRef<number>(0);
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -124,7 +134,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     return [selfEntry, ...others];
   }, [activeParticipants, localStream, remoteStreams, videoUnavailable]);
-  const featuredParticipantId = pinnedParticipantId || activeSpeakerId || (participantCount > 6 ? 'self' : null);
+  const featuredParticipantId = pinnedParticipantId || dominantSpeakerId || (participantCount > 6 ? participantEntries.find((participant) => !participant.isSelf)?.id || 'self' : null);
   const featuredParticipant = featuredParticipantId ? participantEntries.find((participant) => participant.id === featuredParticipantId) || participantEntries[0] : null;
   const railParticipants = featuredParticipant ? participantEntries.filter((participant) => participant.id !== featuredParticipant.id) : [];
 
@@ -480,19 +490,61 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
   useEffect(() => {
     const interval = setInterval(() => {
-      let loudestId: string | null = null;
-      let loudestLevel = 0;
+      const levels = new Map<string, number>();
 
       analyserMapRef.current.forEach((entry, participantId) => {
         entry.analyser.getByteFrequencyData(entry.data as unknown as Uint8Array<ArrayBuffer>);
         const avg = entry.data.reduce((sum, value) => sum + value, 0) / Math.max(entry.data.length, 1);
-        if (avg > loudestLevel) {
-          loudestLevel = avg;
-          loudestId = participantId;
-        }
+        levels.set(participantId, avg);
       });
 
-      setActiveSpeakerId(loudestLevel > 24 ? loudestId : null);
+      const now = Date.now();
+      const nextActiveSpeakerIds = Array.from(levels.entries())
+        .filter(([participantId, level]) => {
+          if (participantId === 'self') {
+            return false;
+          }
+
+          const wasActive = activeSpeakerIdsRef.current.includes(participantId);
+          return level >= SPEAKING_THRESHOLD || (wasActive && level >= SPEAKING_RELEASE_THRESHOLD);
+        })
+        .sort((left, right) => right[1] - left[1])
+        .map(([participantId]) => participantId);
+
+      const loudestActiveId = nextActiveSpeakerIds[0] || null;
+      const loudestActiveLevel = loudestActiveId ? levels.get(loudestActiveId) || 0 : 0;
+      const currentDominantId = dominantSpeakerIdRef.current;
+      const currentDominantLevel = currentDominantId ? levels.get(currentDominantId) || 0 : 0;
+
+      let nextDominantSpeakerId = currentDominantId;
+      if (!currentDominantId || !nextActiveSpeakerIds.includes(currentDominantId)) {
+        nextDominantSpeakerId = loudestActiveId;
+        switchCandidateIdRef.current = null;
+        switchCandidateSinceRef.current = 0;
+      } else if (loudestActiveId && loudestActiveId !== currentDominantId && loudestActiveLevel > currentDominantLevel * DOMINANT_SPEAKER_SWITCH_RATIO) {
+        if (switchCandidateIdRef.current !== loudestActiveId) {
+          switchCandidateIdRef.current = loudestActiveId;
+          switchCandidateSinceRef.current = now;
+        } else if (now - switchCandidateSinceRef.current >= DOMINANT_SPEAKER_HOLD_MS) {
+          nextDominantSpeakerId = loudestActiveId;
+          switchCandidateIdRef.current = null;
+          switchCandidateSinceRef.current = 0;
+        }
+      } else {
+        switchCandidateIdRef.current = null;
+        switchCandidateSinceRef.current = 0;
+      }
+
+      if (nextActiveSpeakerIds.length === 0) {
+        nextDominantSpeakerId = null;
+        switchCandidateIdRef.current = null;
+        switchCandidateSinceRef.current = 0;
+      }
+
+      activeSpeakerIdsRef.current = nextActiveSpeakerIds;
+      dominantSpeakerIdRef.current = nextDominantSpeakerId;
+      setActiveSpeakerIds(nextActiveSpeakerIds);
+      setDominantSpeakerId(nextDominantSpeakerId);
     }, 350);
 
     return () => clearInterval(interval);
@@ -557,7 +609,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
             <span>{call.mode === 'video' ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'}</span>
             <span>Участников в звонке: {activeParticipants.length + 1}</span>
             <span>{['Вы', ...activeParticipants.map(([, user]) => user.displayName || user.username)].join(' • ')}</span>
-            {activeSpeakerId ? <span>Сейчас говорит: {participantEntries.find((participant) => participant.id === activeSpeakerId)?.label || 'Участник'}</span> : null}
+            {activeSpeakerIds.length > 0 ? <span>Сейчас говорят: {activeSpeakerIds.map((participantId) => participantEntries.find((participant) => participant.id === participantId)?.label || 'Участник').join(', ')}</span> : null}
+            {dominantSpeakerId ? <span>В фокусе: {participantEntries.find((participant) => participant.id === dominantSpeakerId)?.label || 'Участник'}</span> : null}
             {notice ? <p className={styles.notice}>{notice}</p> : null}
           </div>
 
@@ -568,7 +621,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
                   participant={featuredParticipant}
                   isFeatured
                   isPinned={pinnedParticipantId === featuredParticipant.id}
-                  isActiveSpeaker={activeSpeakerId === featuredParticipant.id}
+                  isActiveSpeaker={activeSpeakerIds.includes(featuredParticipant.id)}
                   onPin={() => setPinnedParticipantId((prev) => (prev === featuredParticipant.id ? null : featuredParticipant.id))}
                 />
                 <div className={styles.groupParticipantRail}>
@@ -578,7 +631,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
                       participant={participant}
                       isFeatured={false}
                       isPinned={pinnedParticipantId === participant.id}
-                      isActiveSpeaker={activeSpeakerId === participant.id}
+                      isActiveSpeaker={activeSpeakerIds.includes(participant.id)}
                       onPin={() => setPinnedParticipantId((prev) => (prev === participant.id ? null : participant.id))}
                     />
                   ))}
@@ -592,7 +645,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
                     participant={participant}
                     isFeatured={false}
                     isPinned={pinnedParticipantId === participant.id}
-                    isActiveSpeaker={activeSpeakerId === participant.id}
+                    isActiveSpeaker={activeSpeakerIds.includes(participant.id)}
                     onPin={() => setPinnedParticipantId((prev) => (prev === participant.id ? null : participant.id))}
                   />
                 ))}
