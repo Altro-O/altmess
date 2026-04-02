@@ -1971,8 +1971,8 @@ export default function ChatPage() {
 
           <div className={styles.sidebarSegments}>
             <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'all' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('all')}>Все</button>
-            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'direct' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('direct')}>Контакты</button>
-            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'group' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('group')}>Команды</button>
+            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'direct' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('direct')}>Личные</button>
+            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'group' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('group')}>Группы</button>
           </div>
 
           <input
@@ -2486,12 +2486,12 @@ export default function ChatPage() {
             </>
           ) : (
             <div className={styles.empty}>
-              <div className={styles.emptyCard}>
-                <div className={styles.emptyIcon}>*</div>
-                <h3 className={styles.emptyTitle}>Пока нет диалогов</h3>
-                <p className={styles.emptyText}>Найдите пользователя через поиск или дождитесь нового сообщения.</p>
-              </div>
+            <div className={styles.emptyCard}>
+              <div className={styles.emptyIcon}>*</div>
+              <h3 className={styles.emptyTitle}>Здесь появятся ваши чаты</h3>
+              <p className={styles.emptyText}>Начните личный диалог, создайте группу или дождитесь первого сообщения, чтобы заполнить рабочее пространство.</p>
             </div>
+          </div>
           )}
         </section>
       </div>

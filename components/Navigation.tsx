@@ -17,14 +17,14 @@ export default function Navigation() {
         </span>
         <span className={styles.brandText}>
           <span className={styles.brandTitle}>Altmess</span>
-          <span className={styles.brandSubtitle}>realtime messenger</span>
+          <span className={styles.brandSubtitle}>Личные чаты, группы и звонки</span>
         </span>
       </Link>
 
       <div className={styles.actions}>
         {isAuthenticated ? (
           <>
-            <span className={styles.link}>{user?.displayName || user?.username}</span>
+            <span className={styles.userChip}>{user?.displayName || user?.username}</span>
             <Link href="/dashboard/chat" className={styles.link}>Чаты</Link>
             <Link href="/dashboard/profile" className={styles.link}>Профиль</Link>
             <button className={styles.danger} onClick={logout}>Выйти</button>
