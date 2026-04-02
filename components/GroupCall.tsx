@@ -253,6 +253,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       await connection.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushPendingIceCandidates(fromUserId, connection);
     };
 
     const handleIncomingCandidate = async ({ groupId, fromUserId, candidate }: { groupId: string; fromUserId: string; candidate: RTCIceCandidateInit }) => {
@@ -397,6 +398,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
           <div className={styles.topBar}>
             <strong>{call.title}</strong>
             <span>{call.mode === 'video' ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'}</span>
+            <span>Участников в звонке: {activeParticipants.length + 1}</span>
+            <span>{['Вы', ...activeParticipants.map(([, user]) => user.displayName || user.username)].join(' • ')}</span>
             {notice ? <p className={styles.notice}>{notice}</p> : null}
           </div>
 
