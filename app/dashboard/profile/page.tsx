@@ -358,13 +358,18 @@ export default function ProfilePage() {
             imageClassName={styles.avatarImage}
           />
           <div>
-            <p className={styles.eyebrow}>Profile</p>
+            <p className={styles.eyebrow}>Профиль</p>
             <h1 className={styles.title}>Настройки профиля</h1>
             <p className={styles.description}>Имя, аватар и короткий статус будут видны в списке диалогов и в шапке чата.</p>
+            <div className={styles.headerMeta}>
+              <span className={styles.headerMetaBadge}>@{user.username}</span>
+              <span className={styles.headerMetaText}>{bio || 'Добавьте короткий статус, чтобы другим было проще понять, на связи ли вы.'}</span>
+            </div>
           </div>
         </div>
 
         <form onSubmit={handleSave} className={styles.form}>
+          <div className={styles.sectionCard}>
           <label className={styles.field}>
             <span>Отображаемое имя</span>
             <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className={styles.input} maxLength={32} />
@@ -374,7 +379,9 @@ export default function ProfilePage() {
             <span>Короткий статус</span>
             <input value={bio} onChange={(event) => setBio(event.target.value)} className={styles.input} maxLength={90} placeholder="Например: на связи до ночи" />
           </label>
+          </div>
 
+          <div className={styles.sectionCard}>
           <div className={styles.field}>
             <span>Загрузка аватара</span>
             <input type="file" accept="image/*" onChange={handleAvatarUpload} className={styles.fileInput} />
@@ -439,7 +446,9 @@ export default function ProfilePage() {
             <input value={avatarUrl} onChange={(event) => { setAvatarUrl(event.target.value); setAvatarStorageKey(null); setAvatarStorageKind(null); }} className={styles.input} placeholder="https://site.com/avatar.jpg" />
             <span className={styles.hint}>Нужна именно ссылка на сам файл картинки, а не на страницу поиска.</span>
           </label>
+          </div>
 
+          <div className={styles.sectionCard}>
           <div className={styles.field}>
             <span>Цвет профиля</span>
             <div className={styles.palette}>
@@ -452,6 +461,7 @@ export default function ProfilePage() {
                 />
               ))}
             </div>
+          </div>
           </div>
 
           <div className={styles.actions}>

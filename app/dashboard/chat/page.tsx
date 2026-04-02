@@ -1950,7 +1950,10 @@ export default function ChatPage() {
       <div className={styles.chatPage}>
         <aside className={`${styles.sidebar} ${showMobileChat ? styles.sidebarHiddenMobile : ''}`}>
           <div className={styles.sidebarHeader}>
-            <h1 className={styles.sidebarTitle}>Диалоги</h1>
+            <div>
+              <h1 className={styles.sidebarTitle}>Диалоги</h1>
+              <p className={styles.sidebarText}>Личные чаты, группы и быстрый доступ к недавним разговорам.</p>
+            </div>
             <button type="button" className={styles.secondaryButton} onClick={() => setShowCreateGroupModal(true)}>Новая группа</button>
           </div>
 
@@ -2024,6 +2027,7 @@ export default function ChatPage() {
                     imageClassName={styles.avatarImage}
                   />
                   <div>
+                    <div className={styles.panelEyebrow}>{activeContact.type === 'group' ? 'Группа' : 'Личный чат'}</div>
                     <h2 className={styles.panelTitle}>{activeContact.type === 'group' ? activeContact.displayName || activeContact.username : `Чат с ${activeContact.displayName || activeContact.username}`}</h2>
                     <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
                   </div>
