@@ -32,11 +32,13 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(call.mode === 'video');
+  const [videoUnavailable, setVideoUnavailable] = useState(false);
   const [participants, setParticipants] = useState<Record<string, Contact>>({});
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const closingRef = useRef(false);
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -44,21 +46,43 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   );
 
   const createLocalMedia = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: call.mode === 'video'
-        ? {
-            facingMode: { ideal: 'user' },
-            width: { ideal: 640, max: 960 },
-            height: { ideal: 360, max: 540 },
-            frameRate: { ideal: 24, max: 30 },
-          }
-        : false,
-    });
+    let stream: MediaStream;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: call.mode === 'video'
+          ? {
+              facingMode: { ideal: 'user' },
+              width: { ideal: 640, max: 960 },
+              height: { ideal: 360, max: 540 },
+              frameRate: { ideal: 24, max: 30 },
+            }
+          : false,
+      });
+      setVideoUnavailable(false);
+    } catch (error) {
+      if (call.mode !== 'video') {
+        throw error;
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+      setVideoUnavailable(true);
+      setVideoEnabled(false);
+      setNotice('Не нашли видеокамеру, доступен только аудио канал');
+    }
+
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
@@ -72,6 +96,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       connection.close();
       peerConnectionsRef.current.delete(userId);
     }
+    pendingIceCandidatesRef.current.delete(userId);
     setRemoteStreams((prev) => {
       const next = { ...prev };
       delete next[userId];
@@ -118,8 +143,25 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       setRemoteStreams((prev) => ({ ...prev, [user.id]: stream }));
     };
 
+    if (call.mode === 'video' && localStreamRef.current?.getVideoTracks().length === 0) {
+      connection.addTransceiver('video', { direction: 'recvonly' });
+    }
+
     peerConnectionsRef.current.set(user.id, connection);
     return connection;
+  };
+
+  const flushPendingIceCandidates = async (userId: string, connection: RTCPeerConnection) => {
+    const pending = pendingIceCandidatesRef.current.get(userId) || [];
+    if (pending.length === 0) {
+      return;
+    }
+
+    for (const candidate of pending) {
+      await connection.addIceCandidate(new RTCIceCandidate(candidate));
+    }
+
+    pendingIceCandidatesRef.current.delete(userId);
   };
 
   const createOfferForUser = async (user: Contact) => {
@@ -190,6 +232,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
       const connection = ensurePeerConnection(user);
       await connection.setRemoteDescription(new RTCSessionDescription(offer));
+      await flushPendingIceCandidates(fromUserId, connection);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
       socket.emit('group-call:answer', {
@@ -219,6 +262,18 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
       const connection = peerConnectionsRef.current.get(fromUserId);
       if (!connection) {
+        pendingIceCandidatesRef.current.set(fromUserId, [
+          ...(pendingIceCandidatesRef.current.get(fromUserId) || []),
+          candidate,
+        ]);
+        return;
+      }
+
+      if (!connection.remoteDescription) {
+        pendingIceCandidatesRef.current.set(fromUserId, [
+          ...(pendingIceCandidatesRef.current.get(fromUserId) || []),
+          candidate,
+        ]);
         return;
       }
 
@@ -363,7 +418,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
                     muted
                   />
                 ) : (
-                  <div className={styles.audioStageMini}>Вы</div>
+                  <div className={styles.audioStageMini}>{videoUnavailable ? 'Без камеры' : 'Вы'}</div>
                 )}
                 <div className={styles.groupTileLabel}>Вы</div>
               </div>
