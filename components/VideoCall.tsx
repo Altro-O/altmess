@@ -65,6 +65,9 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const scheduleReconnectTimeout = () => {
     clearDisconnectTimer();
     disconnectTimerRef.current = setTimeout(() => {
+      if (socket.connected) {
+        socket.emit('call:end', { callId: call.callId });
+      }
       setPhase('ended');
       closeResources();
       onClose();
@@ -267,7 +270,6 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       if (phase === 'active' || phase === 'connecting') {
         setConnectionNotice('Потеряли сеть. Пытаемся переподключить звонок...');
         setPhase('connecting');
-        scheduleReconnectTimeout();
       }
     };
 
@@ -281,7 +283,6 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       if (phase === 'active' || phase === 'connecting') {
         setConnectionNotice('Интернет пропал. Ждем восстановление соединения...');
         setPhase('connecting');
-        scheduleReconnectTimeout();
       }
     };
 
