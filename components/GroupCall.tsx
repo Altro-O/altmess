@@ -38,12 +38,18 @@ function ParticipantTile({
   isActiveSpeaker,
   onPin,
 }: {
-  participant: { id: string; label: string; stream: MediaStream | null; hasVideo: boolean; fallback: string; isSelf: boolean };
+  participant: { id: string; label: string; stream: MediaStream | null; hasVideo: boolean; fallback: string; isSelf: boolean; audioEnabled: boolean; videoEnabled: boolean; connectionState: string };
   isFeatured: boolean;
   isPinned: boolean;
   isActiveSpeaker: boolean;
   onPin: () => void;
 }) {
+  const badges = [
+    !participant.isSelf && participant.connectionState !== 'connected' ? 'Переподключается' : null,
+    !participant.audioEnabled ? 'Без звука' : null,
+    !participant.videoEnabled ? 'Без видео' : null,
+  ].filter(Boolean) as string[];
+
   return (
     <div className={`${styles.groupTile} ${isFeatured ? styles.groupTileFeatured : ''} ${isActiveSpeaker ? styles.groupTileSpeaking : ''}`}>
       {participant.hasVideo && participant.stream ? (
@@ -63,6 +69,11 @@ function ParticipantTile({
       ) : (
         <div className={styles.audioStageMini}>{participant.fallback}</div>
       )}
+      {badges.length > 0 ? (
+        <div className={styles.groupTileStatusList}>
+          {badges.map((badge) => <span key={badge} className={styles.groupTileStatus}>{badge}</span>)}
+        </div>
+      ) : null}
       <div className={styles.groupTileLabel}>{participant.label}</div>
       <button type="button" className={`${styles.groupTilePin} ${isPinned ? styles.groupTilePinActive : ''}`} onClick={onPin}>
         {isPinned ? 'Открепить' : 'Закрепить'}
@@ -103,11 +114,14 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserMapRef = useRef<Map<string, { analyser: AnalyserNode; source: MediaStreamAudioSourceNode; data: Uint8Array<ArrayBufferLike> }>>(new Map());
+  const participantMediaCleanupRef = useRef<Map<string, () => void>>(new Map());
   const activeSpeakerIdsRef = useRef<string[]>([]);
   const dominantSpeakerIdRef = useRef<string | null>(null);
   const switchCandidateIdRef = useRef<string | null>(null);
   const switchCandidateSinceRef = useRef<number>(0);
   const peerReconnectTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [peerConnectionStates, setPeerConnectionStates] = useState<Record<string, string>>({});
+  const [participantMediaStates, setParticipantMediaStates] = useState<Record<string, { audioEnabled: boolean; videoEnabled: boolean }>>({});
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -122,6 +136,9 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       hasVideo: Boolean(localStream?.getVideoTracks().length),
       isSelf: true,
       fallback: videoUnavailable ? 'Без камеры' : 'Вы',
+      audioEnabled,
+      videoEnabled: call.mode === 'video' ? (videoEnabled && !videoUnavailable && Boolean(localStream?.getVideoTracks().length)) : false,
+      connectionState: 'connected',
     };
 
     const others = activeParticipants.map(([userId, user]) => ({
@@ -131,10 +148,13 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       hasVideo: Boolean(remoteStreams[userId]?.getVideoTracks().length),
       isSelf: false,
       fallback: getFallbackLabel(user),
+      audioEnabled: participantMediaStates[userId]?.audioEnabled ?? Boolean(remoteStreams[userId]?.getAudioTracks().some((track) => track.readyState === 'live' && !track.muted)),
+      videoEnabled: participantMediaStates[userId]?.videoEnabled ?? Boolean(remoteStreams[userId]?.getVideoTracks().some((track) => track.readyState === 'live' && !track.muted)),
+      connectionState: peerConnectionStates[userId] || (remoteStreams[userId] ? 'connected' : 'connecting'),
     }));
 
     return [selfEntry, ...others];
-  }, [activeParticipants, localStream, remoteStreams, videoUnavailable]);
+  }, [activeParticipants, audioEnabled, call.mode, localStream, participantMediaStates, peerConnectionStates, remoteStreams, videoEnabled, videoUnavailable]);
   const allowAutoFeaturedLayout = participantCount <= 2 || participantCount >= 5;
   const featuredParticipantId = pinnedParticipantId || (allowAutoFeaturedLayout ? (dominantSpeakerId || (participantCount > 6 ? participantEntries.find((participant) => !participant.isSelf)?.id || 'self' : null)) : null);
   const featuredParticipant = featuredParticipantId ? participantEntries.find((participant) => participant.id === featuredParticipantId) || participantEntries[0] : null;
@@ -232,6 +252,12 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   };
 
   const cleanupPeer = (userId: string) => {
+    const cleanupMediaState = participantMediaCleanupRef.current.get(userId);
+    if (cleanupMediaState) {
+      cleanupMediaState();
+      participantMediaCleanupRef.current.delete(userId);
+    }
+
     const reconnectTimer = peerReconnectTimerRef.current.get(userId);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -247,6 +273,16 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     }
     pendingIceCandidatesRef.current.delete(userId);
     detachAudioAnalyser(userId);
+    setPeerConnectionStates((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
+    setParticipantMediaStates((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
     setRemoteStreams((prev) => {
       const next = { ...prev };
       delete next[userId];
@@ -255,6 +291,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   };
 
   const cleanupAll = () => {
+    participantMediaCleanupRef.current.forEach((cleanup) => cleanup());
+    participantMediaCleanupRef.current.clear();
     peerReconnectTimerRef.current.forEach((timer) => clearTimeout(timer));
     peerReconnectTimerRef.current.clear();
     peerConnectionsRef.current.forEach((connection) => connection.close());
@@ -267,6 +305,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     analyserMapRef.current.clear();
     audioContextRef.current?.close().catch(() => null);
     audioContextRef.current = null;
+    setPeerConnectionStates({});
+    setParticipantMediaStates({});
   };
 
   const resetRemoteConnections = () => {
@@ -287,7 +327,48 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     switchCandidateSinceRef.current = 0;
     setActiveSpeakerIds([]);
     setDominantSpeakerId(null);
+    setPeerConnectionStates({});
+    setParticipantMediaStates({});
     setRemoteStreams({});
+  };
+
+  const watchParticipantMediaState = (participantId: string, stream: MediaStream) => {
+    participantMediaCleanupRef.current.get(participantId)?.();
+
+    const syncState = () => {
+      setParticipantMediaStates((prev) => ({
+        ...prev,
+        [participantId]: {
+          audioEnabled: stream.getAudioTracks().some((track) => track.readyState === 'live' && !track.muted),
+          videoEnabled: stream.getVideoTracks().some((track) => track.readyState === 'live' && !track.muted),
+        },
+      }));
+    };
+
+    const removers = stream.getTracks().flatMap((track) => {
+      const handleStateChange = () => syncState();
+      track.addEventListener('mute', handleStateChange);
+      track.addEventListener('unmute', handleStateChange);
+      track.addEventListener('ended', handleStateChange);
+      return [
+        () => track.removeEventListener('mute', handleStateChange),
+        () => track.removeEventListener('unmute', handleStateChange),
+        () => track.removeEventListener('ended', handleStateChange),
+      ];
+    });
+
+    const handleTrackChange = () => syncState();
+    stream.addEventListener('addtrack', handleTrackChange);
+    stream.addEventListener('removetrack', handleTrackChange);
+
+    const cleanup = () => {
+      removers.forEach((remove) => remove());
+      stream.removeEventListener('addtrack', handleTrackChange);
+      stream.removeEventListener('removetrack', handleTrackChange);
+    };
+
+    participantMediaCleanupRef.current.set(participantId, cleanup);
+    syncState();
   };
 
   const ensurePeerConnection = (user: Contact) => {
@@ -297,6 +378,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     }
 
     const connection = new RTCPeerConnection({ iceServers });
+    setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'connecting' }));
     localStreamRef.current?.getTracks().forEach((track) => connection.addTrack(track, localStreamRef.current!));
 
     connection.onicecandidate = (event) => {
@@ -319,6 +401,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
       setRemoteStreams((prev) => ({ ...prev, [user.id]: stream }));
       attachAudioAnalyser(user.id, stream);
+      watchParticipantMediaState(user.id, stream);
     };
 
     connection.onconnectionstatechange = () => {
@@ -327,6 +410,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       if (connection.connectionState === 'connected') {
+        setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'connected' }));
         const reconnectTimer = peerReconnectTimerRef.current.get(user.id);
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
@@ -340,6 +424,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       if (connection.connectionState === 'disconnected') {
+        setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'reconnecting' }));
         setNotice(`Связь с ${user.displayName || user.username} нестабильна, переподключаем...`);
         if (!peerReconnectTimerRef.current.has(user.id)) {
           const reconnectTimer = setTimeout(() => {
@@ -359,6 +444,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       if (connection.connectionState === 'failed') {
+        setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'reconnecting' }));
         setNotice(`Связь с ${user.displayName || user.username} потеряна, восстанавливаем...`);
         cleanupPeer(user.id);
         if (socket.connected && localStreamRef.current) {
@@ -375,6 +461,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       if (connection.iceConnectionState === 'failed') {
+        setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'reconnecting' }));
         connection.restartIce?.();
       }
     };

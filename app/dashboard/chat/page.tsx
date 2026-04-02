@@ -10,6 +10,7 @@ import GroupCall, { type GroupCallSession } from '../../../components/GroupCall'
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import ChatHeader from '../../../components/chat/ChatHeader';
 import ChatSidebar from '../../../components/chat/ChatSidebar';
+import MessageTimeline from '../../../components/chat/MessageTimeline';
 import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
@@ -23,54 +24,6 @@ const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
 const EMOJI_USAGE_KEY = 'altmess_emoji_usage';
 const MESSAGES_PAGE_SIZE = 40;
-const TIMELINE_OVERSCAN_PX = 900;
-
-type TimelineItem = { type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage };
-
-function estimateTimelineItemHeight(item: TimelineItem) {
-  if (item.type === 'date') {
-    return 52;
-  }
-
-  const message = item.message;
-  if (message.kind === 'call') {
-    return 88;
-  }
-
-  if (message.kind === 'voice') {
-    return 132;
-  }
-
-  if (message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/')) {
-    return message.attachment.isSticker ? 220 : 300;
-  }
-
-  if (message.kind === 'file') {
-    return 144;
-  }
-
-  const contentLength = Math.max(message.content.length, message.replyTo?.content?.length || 0, message.replyTo?.quote?.length || 0);
-  return Math.min(220, 96 + Math.ceil(contentLength / 42) * 22);
-}
-
-function findTimelineIndexByOffset(offsets: number[], targetOffset: number) {
-  let low = 0;
-  let high = offsets.length - 1;
-  let result = offsets.length;
-
-  while (low <= high) {
-    const middle = Math.floor((low + high) / 2);
-    if (offsets[middle] >= targetOffset) {
-      result = middle;
-      high = middle - 1;
-    } else {
-      low = middle + 1;
-    }
-  }
-
-  return result;
-}
-
 function isGroupContact(contactId?: string | null) {
   return String(contactId || '').startsWith('group:');
 }
@@ -336,10 +289,10 @@ export default function ChatPage() {
   const [isForwardingMessages, setIsForwardingMessages] = useState(false);
   const [draftsByContact, setDraftsByContact] = useState<Record<string, string>>({});
   const [isDragOver, setIsDragOver] = useState(false);
-  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [stickerPacks, setStickerPacks] = useState<Array<{ key: string; title: string; items: string[] }>>([]);
   const [stickerUsage, setStickerUsage] = useState<Record<string, number>>({});
   const [emojiUsage, setEmojiUsage] = useState<Record<string, number>>({});
+  const [jumpTargetMessageId, setJumpTargetMessageId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
@@ -356,13 +309,9 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteSelectionRef = useRef<HTMLDivElement | null>(null);
-  const timelineHeightsRef = useRef<Map<string, number>>(new Map());
-  const timelineResizeObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
   const actionMessage = actionMessageId ? messages.find((message) => message.id === actionMessageId) || null : null;
-  const [timelineLayoutVersion, setTimelineLayoutVersion] = useState(0);
-  const [timelineViewport, setTimelineViewport] = useState({ scrollTop: 0, height: 0 });
 
   const formatFileSize = (sizeBytes: number) => {
     if (sizeBytes < 1024) {
@@ -887,60 +836,6 @@ export default function ChatPage() {
     }
   }, [selectedMessageIds]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-
-  useEffect(() => {
-    const area = messageAreaRef.current;
-    if (!area) {
-      return;
-    }
-
-    const handleScroll = () => {
-      const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
-      setShowScrollToLatest(distanceFromBottom > 240);
-      setTimelineViewport({ scrollTop: area.scrollTop, height: area.clientHeight });
-    };
-
-    handleScroll();
-    area.addEventListener('scroll', handleScroll);
-    return () => area.removeEventListener('scroll', handleScroll);
-  }, [messages.length, activeContactId]);
-
-  const registerTimelineItemNode = useCallback((itemKey: string, node: HTMLDivElement | null) => {
-    const currentObserver = timelineResizeObserversRef.current.get(itemKey);
-    if (currentObserver) {
-      currentObserver.disconnect();
-      timelineResizeObserversRef.current.delete(itemKey);
-    }
-
-    if (!node) {
-      return;
-    }
-
-    const updateHeight = () => {
-      const nextHeight = Math.ceil(node.getBoundingClientRect().height);
-      const previousHeight = timelineHeightsRef.current.get(itemKey);
-      if (previousHeight === nextHeight || nextHeight <= 0) {
-        return;
-      }
-
-      timelineHeightsRef.current.set(itemKey, nextHeight);
-      setTimelineLayoutVersion((version) => version + 1);
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === 'undefined') {
-      return;
-    }
-
-    const observer = new ResizeObserver(() => updateHeight());
-    observer.observe(node);
-    timelineResizeObserversRef.current.set(itemKey, observer);
-  }, []);
-
   const registerMessageNode = useCallback((messageId: string, node: HTMLDivElement | null) => {
     if (node) {
       messageNodeMapRef.current.set(messageId, node);
@@ -1055,9 +950,6 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => () => {
-    timelineResizeObserversRef.current.forEach((observer) => observer.disconnect());
-    timelineResizeObserversRef.current.clear();
-
     if (highlightTimerRef.current) {
       clearTimeout(highlightTimerRef.current);
     }
@@ -1069,13 +961,6 @@ export default function ChatPage() {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaRecorderRef.current = null;
   }, []);
-
-  useEffect(() => {
-    timelineHeightsRef.current.clear();
-    timelineResizeObserversRef.current.forEach((observer) => observer.disconnect());
-    timelineResizeObserversRef.current.clear();
-    setTimelineLayoutVersion((version) => version + 1);
-  }, [activeContactId]);
 
   const activeContact = useMemo(
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
@@ -1153,61 +1038,6 @@ export default function ChatPage() {
   }, [stickerPacks, stickerUsage]);
 
   const showUnifiedMobilePicker = isMobileLayout && (showEmojiPicker || showStickerPicker);
-
-  const timelineItems = useMemo(() => {
-    const items: TimelineItem[] = [];
-    let currentDayKey = '';
-
-    visibleMessages.forEach((message) => {
-      const dayKey = getMessageDayKey(message.createdAt);
-      if (dayKey !== currentDayKey) {
-        currentDayKey = dayKey;
-        items.push({ type: 'date', key: `date-${dayKey}`, label: getTimelineDateLabel(message.createdAt) });
-      }
-
-      items.push({ type: 'message', key: message.id, message });
-    });
-
-    return items;
-  }, [visibleMessages]);
-
-  const timelineMetrics = useMemo(() => {
-    let totalHeight = 0;
-    const offsets: number[] = [];
-    const heights: number[] = [];
-    const keyToOffset = new Map<string, number>();
-
-    timelineItems.forEach((item, index) => {
-      offsets[index] = totalHeight;
-      keyToOffset.set(item.key, totalHeight);
-      const nextHeight = timelineHeightsRef.current.get(item.key) || estimateTimelineItemHeight(item);
-      heights[index] = nextHeight;
-      totalHeight += nextHeight;
-    });
-
-    return { offsets, heights, totalHeight, keyToOffset };
-  }, [timelineItems, timelineLayoutVersion]);
-
-  const virtualTimelineRange = useMemo(() => {
-    if (timelineItems.length === 0) {
-      return { startIndex: 0, endIndex: 0, paddingTop: 0, paddingBottom: 0 };
-    }
-
-    const startOffset = Math.max(0, timelineViewport.scrollTop - TIMELINE_OVERSCAN_PX);
-    const endOffset = timelineViewport.scrollTop + timelineViewport.height + TIMELINE_OVERSCAN_PX;
-    const startIndex = Math.max(0, Math.min(timelineItems.length - 1, findTimelineIndexByOffset(timelineMetrics.offsets, startOffset + 1) - 1));
-    const endIndex = Math.max(startIndex + 1, Math.min(timelineItems.length, findTimelineIndexByOffset(timelineMetrics.offsets, endOffset)));
-    const paddingTop = timelineMetrics.offsets[startIndex] || 0;
-    const renderedHeight = timelineMetrics.heights.slice(startIndex, endIndex).reduce((sum, value) => sum + value, 0);
-    const paddingBottom = Math.max(0, timelineMetrics.totalHeight - paddingTop - renderedHeight);
-
-    return { startIndex, endIndex, paddingTop, paddingBottom };
-  }, [timelineItems.length, timelineMetrics.heights, timelineMetrics.offsets, timelineMetrics.totalHeight, timelineViewport.height, timelineViewport.scrollTop]);
-
-  const renderedTimelineItems = useMemo(
-    () => timelineItems.slice(virtualTimelineRange.startIndex, virtualTimelineRange.endIndex),
-    [timelineItems, virtualTimelineRange.endIndex, virtualTimelineRange.startIndex],
-  );
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
   const isActiveGroupChat = activeContact?.type === 'group';
@@ -1608,18 +1438,7 @@ export default function ChatPage() {
   };
 
   const jumpToMessage = (messageId: string) => {
-    const target = messageNodeMapRef.current.get(messageId);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      const area = messageAreaRef.current;
-      const estimatedOffset = timelineMetrics.keyToOffset.get(messageId);
-      if (!area || estimatedOffset === undefined) {
-        return;
-      }
-
-      area.scrollTo({ top: Math.max(0, estimatedOffset - area.clientHeight / 3), behavior: 'smooth' });
-    }
+    setJumpTargetMessageId(messageId);
 
     setHighlightedMessageId(messageId);
     if (highlightTimerRef.current) {
@@ -1630,10 +1449,6 @@ export default function ChatPage() {
       setHighlightedMessageId(null);
       highlightTimerRef.current = null;
     }, 1800);
-  };
-
-  const scrollToLatest = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   };
 
   const toggleReaction = (messageId: string, emoji: string) => {
@@ -2162,200 +1977,57 @@ export default function ChatPage() {
                 </div>
               ) : null}
 
-              <div ref={messageAreaRef} className={`${styles.messageArea} ${isDragOver ? styles.messageAreaDragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={(event) => event.preventDefault()} onDragLeave={handleDragLeave} onDrop={handleDropFiles}>
-                {isDragOver ? <div className={styles.dropOverlay}>Отпустите файлы, чтобы отправить в чат</div> : null}
-                <div className={styles.messageStack}>
-                  {hasMoreMessages ? (
-                    <div className={styles.timelineDateRow}>
-                      <button type="button" className={styles.smallMutedButton} onClick={() => loadOlderMessages()} disabled={isLoadingOlderMessages || isLoadingMessages}>
-                        {isLoadingOlderMessages ? 'Загружаем...' : 'Загрузить более ранние сообщения'}
-                      </button>
-                    </div>
-                  ) : null}
-                  {virtualTimelineRange.paddingTop > 0 ? <div style={{ height: virtualTimelineRange.paddingTop }} aria-hidden="true" /> : null}
-                  {renderedTimelineItems.map((item) => {
-                    if (item.type === 'date') {
-                      return (
-                        <div key={item.key} ref={(node) => registerTimelineItemNode(item.key, node)} className={styles.timelineMeasureRow}>
-                          <div className={styles.timelineDateRow}>
-                            <div className={styles.timelineDateBadge}>{item.label}</div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    const { message } = item;
-                    const ownMessage = message.senderId === user.id;
-                    const isEditing = editingMessageId === message.id;
-                    const isCallEvent = message.kind === 'call';
-                    const isVoiceMessage = message.kind === 'voice';
-                    const isFileMessage = message.kind === 'file';
-                    const isImageMessage = isFileMessage && !!message.attachment?.mimeType?.startsWith('image/');
-                    const isStickerMessage = isFileMessage && !!message.attachment?.isSticker;
-                    const isPhotoMessage = isImageMessage && !isStickerMessage;
-                    const isVideoStickerMessage = isStickerMessage && !!message.attachment?.mimeType?.startsWith('video/');
-                    const isExpiredAttachment = isAttachmentExpired(message);
-                    const hasQuickActionButton = ownMessage && !message.deletedAt && !isCallEvent && isFileMessage;
-                    const fileBadgeLabel = message.attachment
-                      ? getFileBadgeLabel(message.attachment.fileName, message.attachment.mimeType)
-                      : 'FILE';
-
-                    return (
-                      <div key={message.id} ref={(node) => registerTimelineItemNode(item.key, node)} className={styles.timelineMeasureRow}>
-                        <div className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
-                          <div
-                            ref={(node) => registerMessageNode(message.id, node)}
-                            data-message-id={message.id}
-                            className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${(isPhotoMessage || isStickerMessage) ? styles.messageBubbleMedia : ''} ${isStickerMessage ? styles.messageBubbleSticker : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
-                            style={selectedMessageIds.includes(message.id) ? { outline: '2px solid rgba(103, 132, 255, 0.95)', outlineOffset: '2px' } : undefined}
-                            onClick={() => {
-                              if (selectionMode && !isCallEvent && !message.deletedAt) {
-                                toggleMessageSelection(message.id);
-                              }
-                            }}
-                            onContextMenu={(event) => {
-                              if (message.deletedAt || isCallEvent) {
-                                return;
-                              }
-
-                              event.preventDefault();
-                              event.stopPropagation();
-                              openMessageActions(message.id);
-                            }}
-                            onTouchStart={() => {
-                              if (message.deletedAt || isCallEvent) {
-                                return;
-                              }
-
-                              startLongPress(message.id);
-                            }}
-                            onTouchEnd={stopLongPress}
-                            onTouchMove={stopLongPress}
-                          >
-                          {hasQuickActionButton ? (
-                            <button
-                              type="button"
-                              className={styles.messageQuickAction}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openMessageActions(message.id);
-                              }}
-                              aria-label="Действия с сообщением"
-                              title="Действия"
-                            >
-                              <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm0 6.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5Zm0 6.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" fill="currentColor"/></svg>
-                            </button>
-                          ) : null}
-                          {isEditing ? (
-                            <div className={styles.editBox}>
-                              <textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} className={styles.editInput} rows={3} />
-                              <div className={styles.editActions}>
-                                <button type="button" className={styles.smallButton} onClick={() => submitEdit(message.id)}>Сохранить</button>
-                                <button type="button" className={styles.smallMutedButton} onClick={() => { setEditingMessageId(null); setEditingText(''); }}>Отмена</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              {message.replyTo ? (
-                                <button type="button" className={styles.replyPreview} onClick={() => jumpToMessage(message.replyTo!.id)}>
-                                  <span className={styles.replyAuthor}>{message.replyTo.senderId === user.id ? 'Вы' : (message.replyTo.senderName || activeContact?.displayName || activeContact?.username)}</span>
-                                  <span className={styles.replyText}>{getReplySnippet(message.replyTo)}</span>
-                                </button>
-                              ) : null}
-                              {activeContact?.type === 'group' && !ownMessage ? <span className={styles.replyAuthor}>{getMessageAuthorLabel(message, user.id)}</span> : null}
-                              {message.forwardedFrom ? (
-                                <div className={styles.forwardedPreview}>
-                                  <span className={styles.forwardedLabel}>Переслано от</span>
-                                  <span className={styles.replyAuthor}>{message.forwardedFrom.senderName}</span>
-                                </div>
-                              ) : null}
-                              {message.deletedAt ? (
-                                <p className={`${styles.messageContent} ${styles.messageDeleted}`}>{message.content}</p>
-                              ) : isVoiceMessage && message.voice ? (
-                                <audio controls className={styles.voicePlayer} src={message.voice.audioUrl} />
-                              ) : isExpiredAttachment ? (
-                                <div className={styles.expiredAttachmentCard}>
-                                  <strong className={styles.expiredAttachmentTitle}>Файл недоступен</strong>
-                                  <p className={styles.expiredAttachmentText}>Старое вложение было удалено из хранилища, чтобы освободить место на сервере.</p>
-                                </div>
-                              ) : isStickerMessage && message.attachment ? (
-                                <button type="button" className={styles.stickerCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
-                                  {isVideoStickerMessage ? (
-                                    <video src={message.attachment.fileUrl} className={styles.stickerImage} autoPlay muted loop playsInline />
-                                  ) : (
-                                    <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
-                                  )}
-                                </button>
-                              ) : isImageMessage && message.attachment ? (
-                                <button type="button" className={styles.imageCard} onClick={() => setPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
-                                  <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.imagePreview} loading="lazy" />
-                                </button>
-                              ) : isFileMessage && message.attachment ? (
-                                <a href={message.attachment.fileUrl} download={message.attachment.fileName} target="_blank" rel="noreferrer" className={styles.fileCard}>
-                                  <span className={styles.fileIcon}>{fileBadgeLabel}</span>
-                                  <span className={styles.fileMeta}>
-                                    <span className={styles.fileName}>{message.attachment.fileName}</span>
-                                    <span className={styles.fileInfo}>{formatFileSize(message.attachment.sizeBytes)}</span>
-                                  </span>
-                                  <span className={styles.fileAction}>Открыть</span>
-                                </a>
-                              ) : (
-                                <p className={styles.messageContent}>{message.content}</p>
-                              )}
-                              <div className={`${isCallEvent ? styles.messageMetaSystem : ownMessage ? styles.messageMetaOwn : styles.messageMetaPeer} ${(isPhotoMessage || isStickerMessage) ? ownMessage ? styles.messageMetaMediaOwn : styles.messageMetaMediaPeer : ''}`}>
-                                <p className={isCallEvent ? styles.messageTimeSystem : ownMessage ? styles.messageTimeOwn : styles.messageTimePeer}>
-                                  {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                                {message.updatedAt && !message.deletedAt && !isCallEvent ? <p className={ownMessage ? styles.messageEditedOwn : styles.messageEditedPeer}>изменено</p> : null}
-                                {ownMessage && !isCallEvent ? <p className={styles.messageStatus}>{getOwnStatusText(message)}</p> : null}
-                              </div>
-                              {!isMobileLayout && !message.deletedAt && !isCallEvent && actionMessageId === message.id ? (
-                                <div className={styles.messageTools} onClick={(event) => event.stopPropagation()}>
-                                  <div className={styles.reactionPickerMenu}>
-                                    {orderedEmojis.map((emoji) => (
-                                      <button key={emoji} type="button" className={styles.reactionMenuEmoji} onClick={() => { toggleReaction(message.id, emoji); setActionMessageId(null); }}>{emoji}</button>
-                                    ))}
-                                  </div>
-                                  <button type="button" className={styles.messageToolPrimary} onClick={() => beginReply(message)}>Ответить</button>
-                                  <button type="button" className={styles.messageTool} onClick={() => togglePinnedMessage(message)}>{message.pinnedAt ? 'Открепить' : 'Закрепить'}</button>
-                                  <button type="button" className={styles.messageTool} onClick={() => { setSelectionMode(true); setSelectedMessageIds([message.id]); setActionMessageId(null); }}>Выбрать</button>
-                                  {message.kind === 'text' && !message.deletedAt ? <button type="button" className={styles.messageTool} onClick={() => beginQuote(message)}>Цитировать</button> : null}
-                                  {ownMessage && message.kind !== 'voice' && message.kind !== 'file' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
-                                  {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
-                                </div>
-                              ) : null}
-                              {!isCallEvent ? (
-                                <div className={styles.reactionRow}>
-                                  {message.reactions?.map((reaction) => (
-                                    <button
-                                      key={reaction.emoji}
-                                      type="button"
-                                      className={`${styles.reactionChip} ${reaction.userIds.includes(user.id) ? styles.reactionChipActive : ''}`}
-                                      onClick={() => toggleReaction(message.id, reaction.emoji)}
-                                    >
-                                      <span>{reaction.emoji}</span>
-                                      <span>{reaction.userIds.length}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </>
-                          )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {virtualTimelineRange.paddingBottom > 0 ? <div style={{ height: virtualTimelineRange.paddingBottom }} aria-hidden="true" /> : null}
-                  {visibleMessages.length === 0 && messageSearchQuery.trim() ? <div className={styles.searchEmptyState}>Ничего не найдено в этом диалоге</div> : null}
-                  <div ref={messagesEndRef} />
-                </div>
-                {showScrollToLatest ? (
-                  <button type="button" className={styles.scrollToLatestButton} onClick={scrollToLatest} aria-label="Перейти к последнему сообщению" title="К последнему сообщению">
-                    ↓
-                  </button>
-                ) : null}
-              </div>
+              <MessageTimeline
+                messageAreaRef={messageAreaRef}
+                messagesEndRef={messagesEndRef}
+                visibleMessages={visibleMessages}
+                hasMoreMessages={hasMoreMessages}
+                isLoadingOlderMessages={isLoadingOlderMessages}
+                isLoadingMessages={isLoadingMessages}
+                isDragOver={isDragOver}
+                messageSearchQuery={messageSearchQuery}
+                jumpToMessageId={jumpTargetMessageId}
+                activeContact={activeContact}
+                currentUserId={user.id}
+                editingMessageId={editingMessageId}
+                editingText={editingText}
+                actionMessageId={actionMessageId}
+                selectedMessageIds={selectedMessageIds}
+                selectionMode={selectionMode}
+                highlightedMessageId={highlightedMessageId}
+                isMobileLayout={isMobileLayout}
+                orderedEmojis={orderedEmojis}
+                onLoadOlderMessages={loadOlderMessages}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDropFiles={handleDropFiles}
+                onRegisterMessageNode={registerMessageNode}
+                onToggleMessageSelection={toggleMessageSelection}
+                onOpenMessageActions={openMessageActions}
+                onStartLongPress={startLongPress}
+                onStopLongPress={stopLongPress}
+                onEditingTextChange={setEditingText}
+                onSubmitEdit={submitEdit}
+                onCancelEdit={() => { setEditingMessageId(null); setEditingText(''); }}
+                onJumpToMessage={jumpToMessage}
+                onJumpHandled={() => setJumpTargetMessageId(null)}
+                onToggleReaction={(messageId, emoji) => { toggleReaction(messageId, emoji); setActionMessageId(null); }}
+                onBeginReply={beginReply}
+                onTogglePinnedMessage={togglePinnedMessage}
+                onBeginQuote={beginQuote}
+                onBeginEdit={(message) => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}
+                onSelectMessageForActions={(messageId) => { setSelectionMode(true); setSelectedMessageIds([messageId]); setActionMessageId(null); }}
+                onDeleteMessage={deleteMessage}
+                onPreviewImage={setPreviewImage}
+                getReplySnippet={getReplySnippet}
+                getMessageAuthorLabel={getMessageAuthorLabel}
+                getFileBadgeLabel={getFileBadgeLabel}
+                getOwnStatusText={getOwnStatusText}
+                formatFileSize={formatFileSize}
+                isAttachmentExpired={isAttachmentExpired}
+                getMessageDayKey={getMessageDayKey}
+                getTimelineDateLabel={getTimelineDateLabel}
+              />
 
               <div className={styles.composer}>
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}

@@ -25,7 +25,7 @@ interface VideoCallProps {
   onClose: () => void;
 }
 
-export default function VideoCall({ socket, call, iceServers, onClose }: VideoCallProps) {
+export default function VideoCall({ socket, call, iceServers, minimized = false, onMinimize, onRestore, onClose }: VideoCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'outgoing' : 'incoming');
   const [connectionNotice, setConnectionNotice] = useState('');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -421,7 +421,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = localStream;
     }
-  }, [localStream]);
+  }, [localStream, minimized]);
 
   useEffect(() => {
     if (remoteVideoRef.current) {
@@ -439,7 +439,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
     remoteStreamRef.current = remoteStream;
     ensureRemotePlayback();
-  }, [remoteStream]);
+  }, [remoteStream, minimized]);
 
   const closeResources = () => {
     clearDisconnectTimer();
@@ -860,6 +860,42 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     return 'Звонок завершен';
   }, [call.mode, phase]);
 
+  if (minimized && phase !== 'incoming') {
+    return (
+      <div className={styles.minimizedCall}>
+        <div className={styles.minimizedSurface} role="button" tabIndex={0} onClick={() => onRestore?.()} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRestore?.(); } }}>
+          {call.mode === 'video' ? (
+            <div className={styles.minimizedMediaFrame}>
+              <video ref={remoteVideoRef} autoPlay playsInline className={styles.minimizedRemoteVideo} />
+              <div className={styles.minimizedLocalPreview}>
+                {localStream?.getVideoTracks().length ? (
+                  <video ref={localVideoRef} autoPlay playsInline muted className={styles.minimizedLocalVideo} />
+                ) : (
+                  <div className={styles.audioStageMini}>{videoUnavailable ? 'Без камеры' : 'Вы'}</div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className={styles.minimizedAudioStage}>
+              <div className={styles.audioPulse}>{call.peerName.slice(0, 1).toUpperCase()}</div>
+            </div>
+          )}
+          <div className={styles.minimizedMeta}>
+            <span className={styles.minimizedTitle}>{call.peerName}</span>
+            <span className={styles.minimizedText}>{statusText}</span>
+            {connectionNotice ? <span className={styles.minimizedNotice}>{connectionNotice}</span> : null}
+          </div>
+        </div>
+        <div className={styles.minimizedActionsRow}>
+          <button type="button" className={styles.minimizedAction} onClick={toggleAudio}>{audioEnabled ? 'Микрофон' : 'Без звука'}</button>
+          <button type="button" className={styles.minimizedAction} onClick={() => onRestore?.()}>Развернуть</button>
+          <button type="button" className={styles.minimizedDanger} onClick={endCall}>Завершить</button>
+        </div>
+        <audio ref={remoteAudioRef} autoPlay playsInline preload="auto" className={styles.remoteAudio} />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.overlay} style={{ display: 'block' }}>
       <div className={styles.backdrop} />
@@ -924,6 +960,11 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
             <button className={styles.dangerWide} onClick={endCall}>
               <span className={styles.controlTitle}>Завершить</span>
             </button>
+            {onMinimize ? (
+              <button className={styles.controlWide} onClick={onMinimize}>
+                <span className={styles.controlTitle}>Свернуть</span>
+              </button>
+            ) : null}
             {call.mode === 'video' ? (
               <>
                 <button className={styles.controlWide} onClick={toggleVideo}>
@@ -933,11 +974,11 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
                   <span className={styles.controlTitle}>{isSwitchingCamera ? 'Переключаем...' : 'Сменить камеру'}</span>
                 </button>
               </>
-            ) : (
+            ) : !onMinimize ? (
               <button className={styles.controlWide} onClick={closeOverlay}>
                 <span className={styles.controlTitle}>Скрыть</span>
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       )}
