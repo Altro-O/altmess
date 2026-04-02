@@ -294,6 +294,7 @@ export default function ChatPage() {
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
   const messageNodeMapRef = useRef(new Map<string, HTMLDivElement>());
   const pendingReadIdsRef = useRef(new Set<string>());
+  const activeMessagesRequestRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -742,7 +743,7 @@ export default function ChatPage() {
     });
   }, [loadAvailableContacts, showCreateGroupModal]);
 
-  const loadMessagesPage = useCallback(async (contactId: string, options?: { beforeMessageId?: string; appendOlder?: boolean }) => {
+  const loadMessagesPage = useCallback(async (contactId: string, options?: { beforeMessageId?: string; appendOlder?: boolean; requestId?: number }) => {
     if (!token) {
       return;
     }
@@ -757,6 +758,10 @@ export default function ChatPage() {
     }
 
     const response = await apiFetch<MessagesPage>(`/api/messages?${params.toString()}`, { token });
+
+    if (!options?.appendOlder && options?.requestId && options.requestId !== activeMessagesRequestRef.current) {
+      return;
+    }
 
     if (options?.appendOlder) {
       setMessages((prev) => [...response.messages, ...prev.filter((message) => !response.messages.some((older) => older.id === message.id))]);
@@ -794,7 +799,10 @@ export default function ChatPage() {
     setShowForwardPicker(false);
     setIsLoadingMessages(true);
 
-    loadMessagesPage(activeContactId)
+    const requestId = activeMessagesRequestRef.current + 1;
+    activeMessagesRequestRef.current = requestId;
+
+    loadMessagesPage(activeContactId, { requestId })
       .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'))
       .finally(() => setIsLoadingMessages(false));
   }, [activeContactId, loadMessagesPage, token]);
@@ -1199,17 +1207,15 @@ export default function ChatPage() {
   }, [activeContact, token]);
 
   useEffect(() => {
-    const currentContact = sidebarItems.find((contact) => contact.id === activeContactId) || null;
-
-    if (!showDialogProfile || !currentContact || currentContact.type !== 'group') {
+    if (!showDialogProfile || !activeContactId || !isGroupContact(activeContactId)) {
       setGroupMembers([]);
       setGroupAvailableContacts([]);
       setGroupAddSearchQuery('');
       return;
     }
 
-    loadGroupDetails(currentContact.id);
-  }, [activeContactId, loadGroupDetails, showDialogProfile, sidebarItems]);
+    loadGroupDetails(activeContactId);
+  }, [activeContactId, loadGroupDetails, showDialogProfile]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!activeContactId || !nextMessagesCursor || isLoadingOlderMessages) {

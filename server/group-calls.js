@@ -23,6 +23,7 @@ function createGroupCallStore() {
       const room = this.ensureRoom(groupId);
       room.mode = mode === 'audio' ? 'audio' : 'video';
       room.invitedAt = new Date().toISOString();
+      room.startedAt = room.startedAt || room.invitedAt;
       return room;
     },
     upsertParticipant(groupId, participant) {

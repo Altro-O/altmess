@@ -465,12 +465,58 @@ function createCallLogMessage(db, call, actorId) {
   return message;
 }
 
+function createGroupCallLogMessage(db, group, room, actorId, status = 'ended') {
+  const endedAt = new Date().toISOString();
+  const call = {
+    callerId: actorId,
+    recipientId: `group:${group.id}`,
+    groupId: group.id,
+    mode: room.mode,
+    status,
+    startedAt: room.startedAt || room.createdAt || endedAt,
+    endedAt,
+  };
+  const durationSeconds = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000));
+
+  const message = {
+    id: randomUUID(),
+    senderId: actorId,
+    senderName: db.users.find((user) => user.id === actorId)?.displayName || db.users.find((user) => user.id === actorId)?.username || 'Участник',
+    recipientId: `group:${group.id}`,
+    groupId: group.id,
+    content: buildCallSummary({ ...call, endedAt }, actorId),
+    kind: 'call',
+    callEvent: {
+      mode: room.mode,
+      status,
+      durationSeconds,
+      actorId,
+    },
+    status: 'read',
+    deliveredAt: endedAt,
+    readAt: endedAt,
+    createdAt: endedAt,
+    updatedAt: null,
+    deletedAt: null,
+  };
+
+  db.messages.push(message);
+  return message;
+}
+
 async function persistCallLog(db, call, actorId) {
   const message = createCallLogMessage(db, call, actorId);
   await writeDb(db);
   const payload = sanitizeMessage(message);
   emitToUser(call.callerId, 'message:new', payload);
   emitToUser(call.recipientId, 'message:new', payload);
+}
+
+async function persistGroupCallLog(db, group, room, actorId) {
+  const message = createGroupCallLogMessage(db, group, room, actorId, 'ended');
+  await writeDb(db);
+  const payload = sanitizeMessage(message);
+  group.memberIds.forEach((memberId) => emitToUser(memberId, 'message:new', payload));
 }
 
 app.prepare().then(async () => {
@@ -1770,6 +1816,7 @@ app.prepare().then(async () => {
         return;
       }
 
+      const currentRoom = groupCallStore.getRoom(group.id);
       const room = groupCallStore.removeParticipant(group.id, currentUser.id);
       emitToGroupMembers(group, 'group-call:user-left', {
         groupId: group.id,
@@ -1778,6 +1825,11 @@ app.prepare().then(async () => {
 
       if (!room) {
         emitToGroupMembers(group, 'group-call:ended', { groupId: group.id });
+        if (currentRoom) {
+          persistGroupCallLog(db, group, currentRoom, currentUser.id).catch((error) => {
+            console.error('Failed to persist group call log:', error);
+          });
+        }
       }
 
       callback?.({ ok: true });
@@ -1861,6 +1913,7 @@ app.prepare().then(async () => {
       db.groups
         .filter((group) => groupCallStore.hasParticipant(group.id, currentUser.id))
         .forEach((group) => {
+          const currentRoom = groupCallStore.getRoom(group.id);
           const room = groupCallStore.removeParticipant(group.id, currentUser.id);
           emitToGroupMembers(group, 'group-call:user-left', {
             groupId: group.id,
@@ -1869,6 +1922,11 @@ app.prepare().then(async () => {
 
           if (!room) {
             emitToGroupMembers(group, 'group-call:ended', { groupId: group.id });
+            if (currentRoom) {
+              persistGroupCallLog(db, group, currentRoom, currentUser.id).catch((error) => {
+                console.error('Failed to persist disconnected group call log:', error);
+              });
+            }
           }
         });
 
