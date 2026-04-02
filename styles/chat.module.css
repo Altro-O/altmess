@@ -393,6 +393,11 @@
   margin: 0 auto;
 }
 
+.timelineMeasureRow {
+  content-visibility: auto;
+  contain-intrinsic-size: 160px;
+}
+
 .messageRowOwn,
 .messageRowPeer,
 .messageRowSystem {

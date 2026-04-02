@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
@@ -23,6 +23,53 @@ const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
 const EMOJI_USAGE_KEY = 'altmess_emoji_usage';
 const MESSAGES_PAGE_SIZE = 40;
+const TIMELINE_OVERSCAN_PX = 900;
+
+type TimelineItem = { type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage };
+
+function estimateTimelineItemHeight(item: TimelineItem) {
+  if (item.type === 'date') {
+    return 52;
+  }
+
+  const message = item.message;
+  if (message.kind === 'call') {
+    return 88;
+  }
+
+  if (message.kind === 'voice') {
+    return 132;
+  }
+
+  if (message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/')) {
+    return message.attachment.isSticker ? 220 : 300;
+  }
+
+  if (message.kind === 'file') {
+    return 144;
+  }
+
+  const contentLength = Math.max(message.content.length, message.replyTo?.content?.length || 0, message.replyTo?.quote?.length || 0);
+  return Math.min(220, 96 + Math.ceil(contentLength / 42) * 22);
+}
+
+function findTimelineIndexByOffset(offsets: number[], targetOffset: number) {
+  let low = 0;
+  let high = offsets.length - 1;
+  let result = offsets.length;
+
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (offsets[middle] >= targetOffset) {
+      result = middle;
+      high = middle - 1;
+    } else {
+      low = middle + 1;
+    }
+  }
+
+  return result;
+}
 
 function isGroupContact(contactId?: string | null) {
   return String(contactId || '').startsWith('group:');
@@ -309,9 +356,13 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const quoteSelectionRef = useRef<HTMLDivElement | null>(null);
+  const timelineHeightsRef = useRef<Map<string, number>>(new Map());
+  const timelineResizeObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
   const actionMessage = actionMessageId ? messages.find((message) => message.id === actionMessageId) || null : null;
+  const [timelineLayoutVersion, setTimelineLayoutVersion] = useState(0);
+  const [timelineViewport, setTimelineViewport] = useState({ scrollTop: 0, height: 0 });
 
   const formatFileSize = (sizeBytes: number) => {
     if (sizeBytes < 1024) {
@@ -849,12 +900,46 @@ export default function ChatPage() {
     const handleScroll = () => {
       const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
       setShowScrollToLatest(distanceFromBottom > 240);
+      setTimelineViewport({ scrollTop: area.scrollTop, height: area.clientHeight });
     };
 
     handleScroll();
     area.addEventListener('scroll', handleScroll);
     return () => area.removeEventListener('scroll', handleScroll);
   }, [messages.length, activeContactId]);
+
+  const registerTimelineItemNode = useCallback((itemKey: string, node: HTMLDivElement | null) => {
+    const currentObserver = timelineResizeObserversRef.current.get(itemKey);
+    if (currentObserver) {
+      currentObserver.disconnect();
+      timelineResizeObserversRef.current.delete(itemKey);
+    }
+
+    if (!node) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(node.getBoundingClientRect().height);
+      const previousHeight = timelineHeightsRef.current.get(itemKey);
+      if (previousHeight === nextHeight || nextHeight <= 0) {
+        return;
+      }
+
+      timelineHeightsRef.current.set(itemKey, nextHeight);
+      setTimelineLayoutVersion((version) => version + 1);
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => updateHeight());
+    observer.observe(node);
+    timelineResizeObserversRef.current.set(itemKey, observer);
+  }, []);
 
   const registerMessageNode = useCallback((messageId: string, node: HTMLDivElement | null) => {
     if (node) {
@@ -970,6 +1055,9 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => () => {
+    timelineResizeObserversRef.current.forEach((observer) => observer.disconnect());
+    timelineResizeObserversRef.current.clear();
+
     if (highlightTimerRef.current) {
       clearTimeout(highlightTimerRef.current);
     }
@@ -981,6 +1069,13 @@ export default function ChatPage() {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaRecorderRef.current = null;
   }, []);
+
+  useEffect(() => {
+    timelineHeightsRef.current.clear();
+    timelineResizeObserversRef.current.forEach((observer) => observer.disconnect());
+    timelineResizeObserversRef.current.clear();
+    setTimelineLayoutVersion((version) => version + 1);
+  }, [activeContactId]);
 
   const activeContact = useMemo(
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
@@ -1003,14 +1098,16 @@ export default function ChatPage() {
     [messages, selectedMessageIds],
   );
 
+  const deferredMessageSearchQuery = useDeferredValue(messageSearchQuery);
+
   const visibleMessages = useMemo(() => {
-    const query = messageSearchQuery.trim().toLowerCase();
+    const query = deferredMessageSearchQuery.trim().toLowerCase();
     if (!query) {
       return messages;
     }
 
     return messages.filter((message) => getMessageSearchValue(message).includes(query));
-  }, [messageSearchQuery, messages]);
+  }, [deferredMessageSearchQuery, messages]);
 
   const galleryImages = useMemo(
     () => messages.filter((message) => message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/') && !message.attachment?.isSticker && !isAttachmentExpired(message) && !message.deletedAt),
@@ -1058,7 +1155,7 @@ export default function ChatPage() {
   const showUnifiedMobilePicker = isMobileLayout && (showEmojiPicker || showStickerPicker);
 
   const timelineItems = useMemo(() => {
-    const items: Array<{ type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage }> = [];
+    const items: TimelineItem[] = [];
     let currentDayKey = '';
 
     visibleMessages.forEach((message) => {
@@ -1073,6 +1170,44 @@ export default function ChatPage() {
 
     return items;
   }, [visibleMessages]);
+
+  const timelineMetrics = useMemo(() => {
+    let totalHeight = 0;
+    const offsets: number[] = [];
+    const heights: number[] = [];
+    const keyToOffset = new Map<string, number>();
+
+    timelineItems.forEach((item, index) => {
+      offsets[index] = totalHeight;
+      keyToOffset.set(item.key, totalHeight);
+      const nextHeight = timelineHeightsRef.current.get(item.key) || estimateTimelineItemHeight(item);
+      heights[index] = nextHeight;
+      totalHeight += nextHeight;
+    });
+
+    return { offsets, heights, totalHeight, keyToOffset };
+  }, [timelineItems, timelineLayoutVersion]);
+
+  const virtualTimelineRange = useMemo(() => {
+    if (timelineItems.length === 0) {
+      return { startIndex: 0, endIndex: 0, paddingTop: 0, paddingBottom: 0 };
+    }
+
+    const startOffset = Math.max(0, timelineViewport.scrollTop - TIMELINE_OVERSCAN_PX);
+    const endOffset = timelineViewport.scrollTop + timelineViewport.height + TIMELINE_OVERSCAN_PX;
+    const startIndex = Math.max(0, Math.min(timelineItems.length - 1, findTimelineIndexByOffset(timelineMetrics.offsets, startOffset + 1) - 1));
+    const endIndex = Math.max(startIndex + 1, Math.min(timelineItems.length, findTimelineIndexByOffset(timelineMetrics.offsets, endOffset)));
+    const paddingTop = timelineMetrics.offsets[startIndex] || 0;
+    const renderedHeight = timelineMetrics.heights.slice(startIndex, endIndex).reduce((sum, value) => sum + value, 0);
+    const paddingBottom = Math.max(0, timelineMetrics.totalHeight - paddingTop - renderedHeight);
+
+    return { startIndex, endIndex, paddingTop, paddingBottom };
+  }, [timelineItems.length, timelineMetrics.heights, timelineMetrics.offsets, timelineMetrics.totalHeight, timelineViewport.height, timelineViewport.scrollTop]);
+
+  const renderedTimelineItems = useMemo(
+    () => timelineItems.slice(virtualTimelineRange.startIndex, virtualTimelineRange.endIndex),
+    [timelineItems, virtualTimelineRange.endIndex, virtualTimelineRange.startIndex],
+  );
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
   const isActiveGroupChat = activeContact?.type === 'group';
@@ -1474,11 +1609,18 @@ export default function ChatPage() {
 
   const jumpToMessage = (messageId: string) => {
     const target = messageNodeMapRef.current.get(messageId);
-    if (!target) {
-      return;
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      const area = messageAreaRef.current;
+      const estimatedOffset = timelineMetrics.keyToOffset.get(messageId);
+      if (!area || estimatedOffset === undefined) {
+        return;
+      }
+
+      area.scrollTo({ top: Math.max(0, estimatedOffset - area.clientHeight / 3), behavior: 'smooth' });
     }
 
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setHighlightedMessageId(messageId);
     if (highlightTimerRef.current) {
       clearTimeout(highlightTimerRef.current);
@@ -2030,11 +2172,14 @@ export default function ChatPage() {
                       </button>
                     </div>
                   ) : null}
-                  {timelineItems.map((item) => {
+                  {virtualTimelineRange.paddingTop > 0 ? <div style={{ height: virtualTimelineRange.paddingTop }} aria-hidden="true" /> : null}
+                  {renderedTimelineItems.map((item) => {
                     if (item.type === 'date') {
                       return (
-                        <div key={item.key} className={styles.timelineDateRow}>
-                          <div className={styles.timelineDateBadge}>{item.label}</div>
+                        <div key={item.key} ref={(node) => registerTimelineItemNode(item.key, node)} className={styles.timelineMeasureRow}>
+                          <div className={styles.timelineDateRow}>
+                            <div className={styles.timelineDateBadge}>{item.label}</div>
+                          </div>
                         </div>
                       );
                     }
@@ -2056,36 +2201,37 @@ export default function ChatPage() {
                       : 'FILE';
 
                     return (
-                      <div key={message.id} className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
-                        <div
-                          ref={(node) => registerMessageNode(message.id, node)}
-                          data-message-id={message.id}
-                          className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${(isPhotoMessage || isStickerMessage) ? styles.messageBubbleMedia : ''} ${isStickerMessage ? styles.messageBubbleSticker : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
-                          style={selectedMessageIds.includes(message.id) ? { outline: '2px solid rgba(103, 132, 255, 0.95)', outlineOffset: '2px' } : undefined}
-                          onClick={() => {
-                            if (selectionMode && !isCallEvent && !message.deletedAt) {
-                              toggleMessageSelection(message.id);
-                            }
-                          }}
-                          onContextMenu={(event) => {
-                            if (message.deletedAt || isCallEvent) {
-                              return;
-                            }
+                      <div key={message.id} ref={(node) => registerTimelineItemNode(item.key, node)} className={styles.timelineMeasureRow}>
+                        <div className={isCallEvent ? styles.messageRowSystem : ownMessage ? styles.messageRowOwn : styles.messageRowPeer}>
+                          <div
+                            ref={(node) => registerMessageNode(message.id, node)}
+                            data-message-id={message.id}
+                            className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${(isPhotoMessage || isStickerMessage) ? styles.messageBubbleMedia : ''} ${isStickerMessage ? styles.messageBubbleSticker : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
+                            style={selectedMessageIds.includes(message.id) ? { outline: '2px solid rgba(103, 132, 255, 0.95)', outlineOffset: '2px' } : undefined}
+                            onClick={() => {
+                              if (selectionMode && !isCallEvent && !message.deletedAt) {
+                                toggleMessageSelection(message.id);
+                              }
+                            }}
+                            onContextMenu={(event) => {
+                              if (message.deletedAt || isCallEvent) {
+                                return;
+                              }
 
-                            event.preventDefault();
-                            event.stopPropagation();
-                            openMessageActions(message.id);
-                          }}
-                          onTouchStart={() => {
-                            if (message.deletedAt || isCallEvent) {
-                              return;
-                            }
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openMessageActions(message.id);
+                            }}
+                            onTouchStart={() => {
+                              if (message.deletedAt || isCallEvent) {
+                                return;
+                              }
 
-                            startLongPress(message.id);
-                          }}
-                          onTouchEnd={stopLongPress}
-                          onTouchMove={stopLongPress}
-                        >
+                              startLongPress(message.id);
+                            }}
+                            onTouchEnd={stopLongPress}
+                            onTouchMove={stopLongPress}
+                          >
                           {hasQuickActionButton ? (
                             <button
                               type="button"
@@ -2195,10 +2341,12 @@ export default function ChatPage() {
                               ) : null}
                             </>
                           )}
+                          </div>
                         </div>
                       </div>
                     );
                   })}
+                  {virtualTimelineRange.paddingBottom > 0 ? <div style={{ height: virtualTimelineRange.paddingBottom }} aria-hidden="true" /> : null}
                   {visibleMessages.length === 0 && messageSearchQuery.trim() ? <div className={styles.searchEmptyState}>Ничего не найдено в этом диалоге</div> : null}
                   <div ref={messagesEndRef} />
                 </div>

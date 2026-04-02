@@ -107,6 +107,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const dominantSpeakerIdRef = useRef<string | null>(null);
   const switchCandidateIdRef = useRef<string | null>(null);
   const switchCandidateSinceRef = useRef<number>(0);
+  const peerReconnectTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -231,6 +232,12 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   };
 
   const cleanupPeer = (userId: string) => {
+    const reconnectTimer = peerReconnectTimerRef.current.get(userId);
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      peerReconnectTimerRef.current.delete(userId);
+    }
+
     const connection = peerConnectionsRef.current.get(userId);
     if (connection) {
       connection.onicecandidate = null;
@@ -248,6 +255,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   };
 
   const cleanupAll = () => {
+    peerReconnectTimerRef.current.forEach((timer) => clearTimeout(timer));
+    peerReconnectTimerRef.current.clear();
     peerConnectionsRef.current.forEach((connection) => connection.close());
     peerConnectionsRef.current.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -258,6 +267,27 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     analyserMapRef.current.clear();
     audioContextRef.current?.close().catch(() => null);
     audioContextRef.current = null;
+  };
+
+  const resetRemoteConnections = () => {
+    peerReconnectTimerRef.current.forEach((timer) => clearTimeout(timer));
+    peerReconnectTimerRef.current.clear();
+    peerConnectionsRef.current.forEach((connection) => connection.close());
+    peerConnectionsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
+    analyserMapRef.current.forEach((entry, participantId) => {
+      if (participantId !== 'self') {
+        entry.source.disconnect();
+        analyserMapRef.current.delete(participantId);
+      }
+    });
+    activeSpeakerIdsRef.current = [];
+    dominantSpeakerIdRef.current = null;
+    switchCandidateIdRef.current = null;
+    switchCandidateSinceRef.current = 0;
+    setActiveSpeakerIds([]);
+    setDominantSpeakerId(null);
+    setRemoteStreams({});
   };
 
   const ensurePeerConnection = (user: Contact) => {
@@ -289,6 +319,64 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
       setRemoteStreams((prev) => ({ ...prev, [user.id]: stream }));
       attachAudioAnalyser(user.id, stream);
+    };
+
+    connection.onconnectionstatechange = () => {
+      if (closingRef.current) {
+        return;
+      }
+
+      if (connection.connectionState === 'connected') {
+        const reconnectTimer = peerReconnectTimerRef.current.get(user.id);
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          peerReconnectTimerRef.current.delete(user.id);
+        }
+        setNotice('');
+        if (phase !== 'active') {
+          setPhase('active');
+        }
+        return;
+      }
+
+      if (connection.connectionState === 'disconnected') {
+        setNotice(`Связь с ${user.displayName || user.username} нестабильна, переподключаем...`);
+        if (!peerReconnectTimerRef.current.has(user.id)) {
+          const reconnectTimer = setTimeout(() => {
+            peerReconnectTimerRef.current.delete(user.id);
+            if (peerConnectionsRef.current.get(user.id) !== connection || !socket.connected || !localStreamRef.current) {
+              return;
+            }
+
+            cleanupPeer(user.id);
+            createOfferForUser(user).catch((error) => {
+              console.error('Failed to recreate group peer after disconnect:', error);
+            });
+          }, 4000);
+          peerReconnectTimerRef.current.set(user.id, reconnectTimer);
+        }
+        return;
+      }
+
+      if (connection.connectionState === 'failed') {
+        setNotice(`Связь с ${user.displayName || user.username} потеряна, восстанавливаем...`);
+        cleanupPeer(user.id);
+        if (socket.connected && localStreamRef.current) {
+          createOfferForUser(user).catch((error) => {
+            console.error('Failed to recover failed group peer connection:', error);
+          });
+        }
+      }
+    };
+
+    connection.oniceconnectionstatechange = () => {
+      if (closingRef.current) {
+        return;
+      }
+
+      if (connection.iceConnectionState === 'failed') {
+        connection.restartIce?.();
+      }
     };
 
     if (call.mode === 'video' && localStreamRef.current?.getVideoTracks().length === 0) {
@@ -352,6 +440,48 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     }
   };
 
+  const rejoinCall = async () => {
+    if (closingRef.current) {
+      return;
+    }
+
+    try {
+      setNotice('Восстанавливаем групповой звонок...');
+      setPhase('connecting');
+      localStreamRef.current || await createLocalMedia();
+      resetRemoteConnections();
+
+      const room = await new Promise<Contact[]>((resolve, reject) => {
+        socket.emit('group-call:join', { groupId: call.groupId }, (response: { ok: boolean; error?: string; room?: { participants: Contact[] } }) => {
+          if (!response?.ok || !response.room) {
+            reject(new Error(response?.error || 'Не удалось восстановить групповой звонок'));
+            return;
+          }
+
+          resolve(response.room.participants);
+        });
+      });
+
+      const participantMap = room.reduce<Record<string, Contact>>((acc, participant) => {
+        acc[participant.id] = participant;
+        return acc;
+      }, {});
+      setParticipants(participantMap);
+
+      await Promise.all(
+        room
+          .filter((participant) => participant.id !== currentUserId)
+          .map((participant) => createOfferForUser(participant)),
+      );
+
+      setPhase('active');
+      setNotice('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Не удалось восстановить групповой звонок');
+      setPhase('error');
+    }
+  };
+
   useEffect(() => {
     if (!call.initiator) {
       return;
@@ -359,6 +489,31 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     joinCall();
   }, [call.initiator]);
+
+  useEffect(() => {
+    const handleSocketDisconnect = () => {
+      if (phase === 'active' || phase === 'connecting') {
+        setNotice('Потеряли сеть. Пытаемся вернуть групповой звонок...');
+        setPhase('connecting');
+      }
+    };
+
+    const handleSocketReconnect = () => {
+      if (!closingRef.current && (phase === 'active' || phase === 'connecting')) {
+        rejoinCall().catch((error) => {
+          console.error('Failed to rejoin group call after socket reconnect:', error);
+        });
+      }
+    };
+
+    socket.on('disconnect', handleSocketDisconnect);
+    socket.on('reconnect', handleSocketReconnect);
+
+    return () => {
+      socket.off('disconnect', handleSocketDisconnect);
+      socket.off('reconnect', handleSocketReconnect);
+    };
+  }, [phase, socket, call.groupId, currentUserId]);
 
   useEffect(() => {
     const handleIncomingOffer = async ({ groupId, fromUserId, offer }: { groupId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
