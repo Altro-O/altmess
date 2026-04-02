@@ -44,6 +44,15 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unstableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mediaStatsRef = useRef({
+    inboundBytes: 0,
+    outboundBytes: 0,
+    inboundPackets: 0,
+    outboundPackets: 0,
+    framesDecoded: 0,
+    timestamp: 0,
+  });
   const ringtoneAudioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringtoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,9 +71,93 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
     }
   };
 
+  const clearHealthCheckInterval = () => {
+    if (healthCheckIntervalRef.current) {
+      clearInterval(healthCheckIntervalRef.current);
+      healthCheckIntervalRef.current = null;
+    }
+  };
+
+  const inspectMediaTraffic = async () => {
+    const peerConnection = peerConnectionRef.current;
+    if (!peerConnection) {
+      return false;
+    }
+
+    try {
+      const stats = await peerConnection.getStats();
+      let inboundBytes = 0;
+      let outboundBytes = 0;
+      let inboundPackets = 0;
+      let outboundPackets = 0;
+      let framesDecoded = 0;
+
+      stats.forEach((report) => {
+        if (report.type === 'inbound-rtp' && !report.isRemote) {
+          inboundBytes += report.bytesReceived || 0;
+          inboundPackets += report.packetsReceived || 0;
+          framesDecoded += report.framesDecoded || 0;
+        }
+
+        if (report.type === 'outbound-rtp' && !report.isRemote) {
+          outboundBytes += report.bytesSent || 0;
+          outboundPackets += report.packetsSent || 0;
+        }
+      });
+
+      const previous = mediaStatsRef.current;
+      const hasTraffic =
+        inboundBytes > previous.inboundBytes ||
+        outboundBytes > previous.outboundBytes ||
+        inboundPackets > previous.inboundPackets ||
+        outboundPackets > previous.outboundPackets ||
+        framesDecoded > previous.framesDecoded;
+
+      mediaStatsRef.current = {
+        inboundBytes,
+        outboundBytes,
+        inboundPackets,
+        outboundPackets,
+        framesDecoded,
+        timestamp: Date.now(),
+      };
+
+      return hasTraffic;
+    } catch {
+      return false;
+    }
+  };
+
+  const markConnectionHealthy = () => {
+    setPhase('active');
+    setConnectionNotice('');
+    clearUnstableConnectionTimer();
+    clearDisconnectTimer();
+    notifyConnectionRestored();
+  };
+
+  const startHealthCheckLoop = () => {
+    clearHealthCheckInterval();
+    healthCheckIntervalRef.current = setInterval(() => {
+      inspectMediaTraffic()
+        .then((hasTraffic) => {
+          if (hasTraffic) {
+            markConnectionHealthy();
+          }
+        })
+        .catch(() => null);
+    }, 3000);
+  };
+
   const scheduleReconnectTimeout = () => {
     clearDisconnectTimer();
-    disconnectTimerRef.current = setTimeout(() => {
+    disconnectTimerRef.current = setTimeout(async () => {
+      const hasTraffic = await inspectMediaTraffic();
+      if (hasTraffic) {
+        markConnectionHealthy();
+        return;
+      }
+
       if (socket.connected) {
         socket.emit('call:end', { callId: call.callId });
       }
@@ -261,6 +354,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   useEffect(() => () => {
     stopRingtone();
     clearUnstableConnectionTimer();
+    clearHealthCheckInterval();
     ringtoneAudioContextRef.current?.close().catch(() => null);
     ringtoneAudioContextRef.current = null;
   }, []);
@@ -350,6 +444,7 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
   const closeResources = () => {
     clearDisconnectTimer();
     clearUnstableConnectionTimer();
+    clearHealthCheckInterval();
     stopRingtone();
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
@@ -575,21 +670,15 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       }
 
       setRemoteStream(incomingStream);
-      setPhase('active');
-      setConnectionNotice('');
-      clearUnstableConnectionTimer();
-      clearDisconnectTimer();
-      notifyConnectionRestored();
+      markConnectionHealthy();
+      startHealthCheckLoop();
       ensureRemotePlayback();
     };
 
     peerConnection.onconnectionstatechange = () => {
       if (peerConnection.connectionState === 'connected') {
-        setPhase('active');
-        setConnectionNotice('');
-        clearUnstableConnectionTimer();
-        clearDisconnectTimer();
-        notifyConnectionRestored();
+        markConnectionHealthy();
+        startHealthCheckLoop();
       }
 
       if (peerConnection.connectionState === 'connecting') {
@@ -607,10 +696,8 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
 
     peerConnection.oniceconnectionstatechange = () => {
       if (peerConnection.iceConnectionState === 'connected' || peerConnection.iceConnectionState === 'completed') {
-        setConnectionNotice('');
-        clearUnstableConnectionTimer();
-        clearDisconnectTimer();
-        notifyConnectionRestored();
+        markConnectionHealthy();
+        startHealthCheckLoop();
       }
 
       if (peerConnection.iceConnectionState === 'disconnected') {
