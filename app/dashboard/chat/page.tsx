@@ -252,6 +252,7 @@ export default function ChatPage() {
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [mobilePickerTab, setMobilePickerTab] = useState<'emoji' | 'sticker'>('emoji');
   const [replyMessage, setReplyMessage] = useState<ChatMessage | null>(null);
   const [replyQuote, setReplyQuote] = useState('');
   const [quoteDraft, setQuoteDraft] = useState('');
@@ -1039,6 +1040,8 @@ export default function ChatPage() {
 
     return [{ key: 'frequent', title: 'Часто используемые', items: Array.from(new Set(frequentlyUsedItems)) }, ...packs];
   }, [stickerPacks, stickerUsage]);
+
+  const showUnifiedMobilePicker = isMobileLayout && (showEmojiPicker || showStickerPicker);
 
   const timelineItems = useMemo(() => {
     const items: Array<{ type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage }> = [];
@@ -2330,14 +2333,60 @@ export default function ChatPage() {
                     </div>
                   </div>
                 ) : null}
-                {showEmojiPicker ? (
+                {showUnifiedMobilePicker ? (
+                  <div className={styles.mobilePickerSheet}>
+                    <div className={styles.mobilePickerTabs}>
+                      <button
+                        type="button"
+                        className={`${styles.mobilePickerTab} ${mobilePickerTab === 'emoji' ? styles.mobilePickerTabActive : ''}`}
+                        onClick={() => { setMobilePickerTab('emoji'); setShowEmojiPicker(true); setShowStickerPicker(false); }}
+                      >
+                        Эмодзи
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.mobilePickerTab} ${mobilePickerTab === 'sticker' ? styles.mobilePickerTabActive : ''}`}
+                        onClick={() => { setMobilePickerTab('sticker'); setShowStickerPicker(true); setShowEmojiPicker(false); }}
+                      >
+                        Стикеры
+                      </button>
+                    </div>
+                    {mobilePickerTab === 'emoji' ? (
+                      <div className={`${styles.emojiPicker} ${styles.mobilePickerBody}`}>
+                        {orderedEmojis.map((emoji) => (
+                          <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className={`${styles.stickerPicker} ${styles.mobilePickerBody}`}>
+                        {orderedStickerPacks.map((pack) => (
+                          <div key={pack.key} className={styles.stickerPack}>
+                            <strong className={styles.stickerPackTitle}>{pack.title}</strong>
+                            <div className={styles.stickerGrid}>
+                              {pack.items.map((fileUrl) => (
+                                <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => sendSticker(pack.key, fileUrl)}>
+                                  {fileUrl.endsWith('.webm') ? (
+                                    <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
+                                  ) : (
+                                    <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {!isMobileLayout && showEmojiPicker ? (
                   <div className={styles.emojiPicker}>
                     {orderedEmojis.map((emoji) => (
                       <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
                     ))}
                   </div>
                 ) : null}
-                {showStickerPicker ? (
+                {!isMobileLayout && showStickerPicker ? (
                   <div className={styles.stickerPicker}>
                     {orderedStickerPacks.map((pack) => (
                       <div key={pack.key} className={styles.stickerPack}>
@@ -2375,10 +2424,24 @@ export default function ChatPage() {
                       rows={1}
                     />
                     <div className={styles.composerInlineActions}>
-                      <button type="button" className={`${styles.inlineIconButton} ${showStickerPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }} title="Открыть стикеры">
+                      {isMobileLayout ? <button type="button" className={styles.inlineIconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
+                      </button> : null}
+                      {!isMobileLayout ? <button type="button" className={`${styles.inlineIconButton} ${showStickerPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }} title="Открыть стикеры">
                         <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5.59L8 21.41A1 1 0 0 1 6.29 20.7V17H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm2.75 6.75a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm6.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm-6.6 3.2a1 1 0 0 0-1.3 1.52 7 7 0 0 0 9.3 0 1 1 0 1 0-1.3-1.52 5 5 0 0 1-6.7 0Z" fill="currentColor"/></svg>
-                      </button>
-                      <button type="button" className={`${styles.inlineIconButton} ${showEmojiPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => setShowEmojiPicker((prev) => !prev)} title="Открыть эмодзи">
+                      </button> : null}
+                      <button type="button" className={`${styles.inlineIconButton} ${(showEmojiPicker || showStickerPicker) ? styles.inlineIconButtonActive : ''}`} onClick={() => {
+                        if (isMobileLayout) {
+                          const opening = !(showEmojiPicker || showStickerPicker);
+                          setMobilePickerTab((prev) => prev || 'emoji');
+                          setShowEmojiPicker(opening ? mobilePickerTab !== 'sticker' : false);
+                          setShowStickerPicker(opening ? mobilePickerTab === 'sticker' : false);
+                          return;
+                        }
+
+                        setShowEmojiPicker((prev) => !prev);
+                        setShowStickerPicker(false);
+                      }} title={isMobileLayout ? 'Открыть эмодзи и стикеры' : 'Открыть эмодзи'}>
                         <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
                       </button>
                       {!inputText.trim() || isRecordingVoice ? (

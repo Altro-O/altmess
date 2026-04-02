@@ -44,6 +44,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
     [currentUserId, participants],
   );
+  const participantCount = activeParticipants.length + 1;
 
   const createLocalMedia = async () => {
     let stream: MediaStream;
@@ -404,7 +405,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
           </div>
 
           <div className={styles.groupStage}>
-            <div className={styles.groupGrid}>
+            <div className={`${styles.groupGrid} ${participantCount <= 2 ? styles.groupGridTwo : participantCount <= 4 ? styles.groupGridFour : styles.groupGridCrowded}`}>
               <div className={styles.groupTile}>
                 {call.mode === 'video' && localStream ? (
                   <video
