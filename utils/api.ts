@@ -10,6 +10,7 @@ export interface AuthUser {
   avatarStorageKind?: 'local' | 'vps' | null;
   avatarColor?: string;
   lastSeenAt?: string | null;
+  pinnedChatIds?: string[];
 }
 
 export interface Contact extends AuthUser {
@@ -59,10 +60,18 @@ export interface ChatMessage {
   } | null;
   updatedAt?: string | null;
   deletedAt?: string | null;
+  pinnedAt?: string | null;
   status: 'sent' | 'delivered' | 'read';
   deliveredAt: string | null;
   readAt: string | null;
   createdAt: string;
+}
+
+export interface MessagesPage {
+  messages: ChatMessage[];
+  pinnedMessages: ChatMessage[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 type RequestOptions = RequestInit & {

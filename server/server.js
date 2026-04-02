@@ -70,6 +70,7 @@ function publicUser(user) {
     avatarStorageKind: user.avatarStorageKind || null,
     avatarColor: user.avatarColor || 'ocean',
     lastSeenAt: user.lastSeenAt || null,
+    pinnedChatIds: Array.isArray(user.pinnedChatIds) ? user.pinnedChatIds.map(String) : [],
   };
 }
 
@@ -139,6 +140,43 @@ function getConversationMessages(db, firstUserId, secondUserId) {
         (message.senderId === secondUserId && message.recipientId === firstUserId),
     )
     .sort((first, second) => first.createdAt.localeCompare(second.createdAt));
+}
+
+function getConversationPage(db, firstUserId, secondUserId, options = {}) {
+  const limit = Math.min(Math.max(Number(options.limit) || 40, 1), 100);
+  const beforeMessageId = options.beforeMessageId ? String(options.beforeMessageId) : '';
+  const messages = getConversationMessages(db, firstUserId, secondUserId);
+
+  let endIndex = messages.length;
+  if (beforeMessageId) {
+    const beforeIndex = messages.findIndex((message) => message.id === beforeMessageId);
+    endIndex = beforeIndex >= 0 ? beforeIndex : messages.length;
+  }
+
+  const startIndex = Math.max(0, endIndex - limit);
+  const pageMessages = messages.slice(startIndex, endIndex).map(sanitizeMessage);
+  const hasMore = startIndex > 0;
+  const pinnedMessages = messages
+    .filter((message) => message.pinnedAt)
+    .sort((first, second) => String(second.pinnedAt).localeCompare(String(first.pinnedAt)))
+    .slice(0, 10)
+    .map(sanitizeMessage);
+
+  return {
+    messages: pageMessages,
+    pinnedMessages,
+    hasMore,
+    nextCursor: hasMore && pageMessages[0] ? pageMessages[0].id : null,
+  };
+}
+
+function normalizePinnedChatIds(input, currentUserId, db) {
+  const validUserIds = new Set(db.users.map((user) => String(user.id)));
+  return Array.from(new Set(
+    (Array.isArray(input) ? input : [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && value !== currentUserId && validUserIds.has(value)),
+  ));
 }
 
 function sanitizeMessage(message) {
@@ -804,6 +842,7 @@ app.prepare().then(async () => {
       bio: '',
       avatarUrl: '',
       avatarColor: 'ocean',
+      pinnedChatIds: [],
       lastSeenAt: null,
     };
 
@@ -880,6 +919,28 @@ app.prepare().then(async () => {
     res.json({ dialogs: buildDialogs(req.user.id) });
   });
 
+  expressApp.get('/api/preferences', authMiddleware, (req, res) => {
+    const db = readDb();
+    const user = db.users.find((entry) => entry.id === req.user.id);
+    res.json({
+      pinnedChatIds: Array.isArray(user?.pinnedChatIds) ? user.pinnedChatIds.map(String) : [],
+    });
+  });
+
+  expressApp.patch('/api/preferences', authMiddleware, async (req, res) => {
+    const db = readDb();
+    const user = db.users.find((entry) => entry.id === req.user.id);
+
+    if (!user) {
+      res.status(404).json({ error: 'Пользователь не найден' });
+      return;
+    }
+
+    user.pinnedChatIds = normalizePinnedChatIds(req.body?.pinnedChatIds, req.user.id, db);
+    await writeDb(db);
+    res.json({ pinnedChatIds: user.pinnedChatIds });
+  });
+
   expressApp.get('/api/messages', authMiddleware, (req, res) => {
     const contactId = String(req.query.contactId || '');
     if (!contactId) {
@@ -888,7 +949,10 @@ app.prepare().then(async () => {
     }
 
     const db = readDb();
-    res.json({ messages: getConversationMessages(db, req.user.id, contactId).map(sanitizeMessage) });
+    res.json(getConversationPage(db, req.user.id, contactId, {
+      beforeMessageId: req.query.beforeMessageId,
+      limit: req.query.limit,
+    }));
   });
 
   expressApp.post('/api/uploads', authMiddleware, express.raw({ type: '*/*', limit: `${MAX_MEDIA_UPLOAD_BYTES}b` }), async (req, res) => {
@@ -1084,6 +1148,7 @@ app.prepare().then(async () => {
         createdAt: now,
         updatedAt: null,
         deletedAt: null,
+        pinnedAt: null,
       };
 
       db.messages.push(message);
@@ -1180,6 +1245,30 @@ app.prepare().then(async () => {
       await deleteStoredMediaAttachment(message.attachment);
       message.deletedAt = new Date().toISOString();
       message.updatedAt = message.deletedAt;
+      await writeDb(db);
+
+      const payload = sanitizeMessage(message);
+      emitToUser(message.senderId, 'message:update', payload);
+      emitToUser(message.recipientId, 'message:update', payload);
+      callback?.({ ok: true, message: payload });
+    });
+
+    socket.on('message:pin', async ({ messageId, pinned }, callback) => {
+      const db = readDb();
+      const message = db.messages.find((entry) => entry.id === String(messageId));
+
+      if (!message || message.deletedAt || message.kind === 'call') {
+        callback?.({ ok: false, error: 'Сообщение нельзя закрепить' });
+        return;
+      }
+
+      if (message.senderId !== currentUser.id && message.recipientId !== currentUser.id) {
+        callback?.({ ok: false, error: 'Нет доступа к сообщению' });
+        return;
+      }
+
+      message.pinnedAt = pinned === false ? null : new Date().toISOString();
+      message.updatedAt = new Date().toISOString();
       await writeDb(db);
 
       const payload = sanitizeMessage(message);

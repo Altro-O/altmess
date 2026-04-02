@@ -6,7 +6,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
-import { apiFetch, type ChatMessage, type Contact } from '../../../utils/api';
+import { apiFetch, type ChatMessage, type Contact, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
 const MOBILE_BREAKPOINT = 960;
@@ -18,6 +18,7 @@ const PINNED_CHATS_KEY = 'altmess_pinned_chats';
 const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
 const EMOJI_USAGE_KEY = 'altmess_emoji_usage';
+const MESSAGES_PAGE_SIZE = 40;
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -196,12 +197,25 @@ function sortByUsage<T extends string>(items: T[], usage: Record<string, number>
   });
 }
 
+function canForwardMessage(message: ChatMessage) {
+  return !message.deletedAt && message.kind !== 'call' && !(message.attachment && isAttachmentExpired(message));
+}
+
+function sortPinnedMessages(items: ChatMessage[]) {
+  return [...items].sort((first, second) => String(second.pinnedAt || '').localeCompare(String(first.pinnedAt || '')));
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading, token, user } = useAuth();
   const [sidebarItems, setSidebarItems] = useState<Contact[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<ChatMessage[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [nextMessagesCursor, setNextMessagesCursor] = useState<string | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
@@ -234,6 +248,10 @@ export default function ChatPage() {
   const [previewImage, setPreviewImage] = useState<{ src: string; name: string } | null>(null);
   const [showDialogProfile, setShowDialogProfile] = useState(false);
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [showForwardPicker, setShowForwardPicker] = useState(false);
+  const [isForwardingMessages, setIsForwardingMessages] = useState(false);
   const [draftsByContact, setDraftsByContact] = useState<Record<string, string>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
@@ -417,17 +435,19 @@ export default function ChatPage() {
       const savedDrafts = JSON.parse(window.localStorage.getItem(DRAFTS_KEY) || '{}');
       const savedStickerUsage = JSON.parse(window.localStorage.getItem(STICKER_USAGE_KEY) || '{}');
       const savedEmojiUsage = JSON.parse(window.localStorage.getItem(EMOJI_USAGE_KEY) || '{}');
-      setPinnedChatIds(Array.isArray(savedPins) ? savedPins.map(String) : []);
+      const localPins = Array.isArray(savedPins) ? savedPins.map(String) : [];
+      const serverPins = Array.isArray(user?.pinnedChatIds) ? user.pinnedChatIds.map(String) : [];
+      setPinnedChatIds(serverPins.length > 0 ? serverPins : localPins);
       setDraftsByContact(savedDrafts && typeof savedDrafts === 'object' ? savedDrafts : {});
       setStickerUsage(savedStickerUsage && typeof savedStickerUsage === 'object' ? savedStickerUsage : {});
       setEmojiUsage(savedEmojiUsage && typeof savedEmojiUsage === 'object' ? savedEmojiUsage : {});
     } catch {
-      setPinnedChatIds([]);
+      setPinnedChatIds(Array.isArray(user?.pinnedChatIds) ? user.pinnedChatIds.map(String) : []);
       setDraftsByContact({});
       setStickerUsage({});
       setEmojiUsage({});
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -580,6 +600,14 @@ export default function ChatPage() {
 
         socket.on('message:update', (message: ChatMessage) => {
           setMessages((prev) => upsertMessage(prev, message));
+          setPinnedMessages((prev) => {
+            const withoutCurrent = prev.filter((entry) => entry.id !== message.id);
+            if (!message.pinnedAt || message.deletedAt) {
+              return withoutCurrent;
+            }
+
+            return sortPinnedMessages([...withoutCurrent, message]);
+          });
           setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact)), pinnedChatIds));
         });
 
@@ -623,26 +651,62 @@ export default function ChatPage() {
     });
   }, [loadSidebar]);
 
-  useEffect(() => {
-    if (!activeContactId || !token) {
-      setMessages([]);
+  const loadMessagesPage = useCallback(async (contactId: string, options?: { beforeMessageId?: string; appendOlder?: boolean }) => {
+    if (!token) {
       return;
     }
 
-    apiFetch<{ messages: ChatMessage[] }>(`/api/messages?contactId=${activeContactId}`, { token })
-      .then((response) => {
-        setMessages(response.messages);
+    const params = new URLSearchParams({
+      contactId,
+      limit: String(MESSAGES_PAGE_SIZE),
+    });
 
-        const undeliveredIncomingIds = response.messages
-          .filter((message) => message.senderId === activeContactId && message.recipientId === currentUserId && !message.deliveredAt)
-          .map((message) => message.id);
+    if (options?.beforeMessageId) {
+      params.set('beforeMessageId', options.beforeMessageId);
+    }
 
-        if (undeliveredIncomingIds.length > 0) {
-          socketRef.current?.emit('message:delivered', { messageIds: undeliveredIncomingIds });
-        }
-      })
-      .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'));
-  }, [activeContactId, currentUserId, token]);
+    const response = await apiFetch<MessagesPage>(`/api/messages?${params.toString()}`, { token });
+
+    if (options?.appendOlder) {
+      setMessages((prev) => [...response.messages, ...prev.filter((message) => !response.messages.some((older) => older.id === message.id))]);
+    } else {
+      setMessages(response.messages);
+    }
+
+    setPinnedMessages(sortPinnedMessages(response.pinnedMessages || []));
+
+    setHasMoreMessages(response.hasMore);
+    setNextMessagesCursor(response.nextCursor);
+
+    if (!options?.appendOlder) {
+      const undeliveredIncomingIds = response.messages
+        .filter((message) => message.senderId === contactId && message.recipientId === currentUserId && !message.deliveredAt)
+        .map((message) => message.id);
+
+      if (undeliveredIncomingIds.length > 0) {
+        socketRef.current?.emit('message:delivered', { messageIds: undeliveredIncomingIds });
+      }
+    }
+  }, [currentUserId, token]);
+
+  useEffect(() => {
+    if (!activeContactId || !token) {
+      setMessages([]);
+      setPinnedMessages([]);
+      setHasMoreMessages(false);
+      setNextMessagesCursor(null);
+      return;
+    }
+
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+    setShowForwardPicker(false);
+    setIsLoadingMessages(true);
+
+    loadMessagesPage(activeContactId)
+      .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'))
+      .finally(() => setIsLoadingMessages(false));
+  }, [activeContactId, loadMessagesPage, token]);
 
   useEffect(() => {
     if (!requestedContactId || !sidebarItems.some((contact) => contact.id === requestedContactId)) {
@@ -662,6 +726,12 @@ export default function ChatPage() {
 
     setInputText((prev) => (prev.trim() ? prev : draftsByContact[activeContactId] || ''));
   }, [activeContactId, draftsByContact]);
+
+  useEffect(() => {
+    if (selectedMessageIds.length === 0) {
+      setSelectionMode(false);
+    }
+  }, [selectedMessageIds]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -814,6 +884,11 @@ export default function ChatPage() {
     [activeContactId, sidebarItems],
   );
 
+  const selectedMessages = useMemo(
+    () => messages.filter((message) => selectedMessageIds.includes(message.id)),
+    [messages, selectedMessageIds],
+  );
+
   const visibleMessages = useMemo(() => {
     const query = messageSearchQuery.trim().toLowerCase();
     if (!query) {
@@ -885,6 +960,50 @@ export default function ChatPage() {
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
 
+  const syncPinnedChats = useCallback(async (nextPins: string[]) => {
+    if (!token) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch<{ pinnedChatIds: string[] }>('/api/preferences', {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify({ pinnedChatIds: nextPins }),
+      });
+      setPinnedChatIds(response.pinnedChatIds);
+      setSidebarItems((current) => sortContactsWithPins(current, response.pinnedChatIds));
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось сохранить закрепы');
+    }
+  }, [token]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeContactId || !nextMessagesCursor || isLoadingOlderMessages) {
+      return;
+    }
+
+    const area = messageAreaRef.current;
+    const previousScrollHeight = area?.scrollHeight || 0;
+    setIsLoadingOlderMessages(true);
+
+    try {
+      await loadMessagesPage(activeContactId, { beforeMessageId: nextMessagesCursor, appendOlder: true });
+      requestAnimationFrame(() => {
+        if (!area) {
+          return;
+        }
+
+        const nextScrollHeight = area.scrollHeight;
+        area.scrollTop += nextScrollHeight - previousScrollHeight;
+      });
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить старые сообщения');
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [activeContactId, isLoadingOlderMessages, loadMessagesPage, nextMessagesCursor]);
+
   const handleSelectContact = (contactId: string) => {
     if (activeContactId && activeContactId !== contactId) {
       setDraftsByContact((prev) => ({ ...prev, [activeContactId]: inputText }));
@@ -908,6 +1027,7 @@ export default function ChatPage() {
     setPinnedChatIds((prev) => {
       const nextPins = prev.includes(contactId) ? prev.filter((id) => id !== contactId) : [contactId, ...prev];
       setSidebarItems((current) => sortContactsWithPins(current, nextPins));
+      void syncPinnedChats(nextPins);
       return nextPins;
     });
   };
@@ -924,6 +1044,58 @@ export default function ChatPage() {
         ...prev.filter((contact) => contact.id !== contactId),
       ], pinnedChatIds);
     });
+  };
+
+  const toggleMessageSelection = (messageId: string) => {
+    setSelectedMessageIds((prev) => (prev.includes(messageId) ? prev.filter((id) => id !== messageId) : [...prev, messageId]));
+  };
+
+  const clearMessageSelection = () => {
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+    setShowForwardPicker(false);
+  };
+
+  const forwardMessagesToContact = async (contactId: string) => {
+    if (!socketRef.current || selectedMessages.length === 0) {
+      return;
+    }
+
+    const forwardableMessages = selectedMessages.filter(canForwardMessage);
+    if (forwardableMessages.length === 0) {
+      setPageError('Нет сообщений, которые можно переслать');
+      return;
+    }
+
+    setIsForwardingMessages(true);
+
+    try {
+      for (const message of forwardableMessages) {
+        await new Promise<void>((resolve, reject) => {
+          socketRef.current?.emit('message:send', {
+            recipientId: contactId,
+            content: message.kind === 'text' ? message.content : undefined,
+            kind: message.kind,
+            voice: message.voice || undefined,
+            attachment: message.attachment || undefined,
+          }, (response: { ok: boolean; error?: string }) => {
+            if (!response?.ok) {
+              reject(new Error(response?.error || 'Не удалось переслать сообщение'));
+              return;
+            }
+
+            resolve();
+          });
+        });
+      }
+
+      clearMessageSelection();
+      setPageError('');
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось переслать сообщения');
+    } finally {
+      setIsForwardingMessages(false);
+    }
   };
 
   const submitMessage = (event: React.FormEvent) => {
@@ -1074,6 +1246,30 @@ export default function ChatPage() {
       }
 
       setMessages((prev) => upsertMessage(prev, response.message!));
+    });
+  };
+
+  const togglePinnedMessage = (message: ChatMessage) => {
+    if (!socketRef.current) {
+      return;
+    }
+
+    socketRef.current.emit('message:pin', { messageId: message.id, pinned: !message.pinnedAt }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+      if (!response.ok || !response.message) {
+        setPageError(response.error || 'Не удалось обновить закреп');
+        return;
+      }
+
+      setMessages((prev) => upsertMessage(prev, response.message!));
+      setPinnedMessages((prev) => {
+        const withoutCurrent = prev.filter((entry) => entry.id !== response.message!.id);
+        if (!response.message!.pinnedAt || response.message!.deletedAt) {
+          return withoutCurrent;
+        }
+
+        return sortPinnedMessages([...withoutCurrent, response.message!]);
+      });
+      setActionMessageId(null);
     });
   };
 
@@ -1570,6 +1766,28 @@ export default function ChatPage() {
                 </div>
               </div>
 
+              {pinnedMessages.length > 0 ? (
+                <div className={styles.dialogSearchBar}>
+                  <div className={styles.replyBanner}>
+                    <div className={styles.replyBannerBody} style={{ cursor: 'default' }}>
+                      <strong className={styles.replyBannerTitle}>Закрепленные сообщения: {pinnedMessages.length}</strong>
+                      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                        {pinnedMessages.slice(0, 3).map((message) => (
+                          <div key={message.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <button type="button" className={styles.smallMutedButton} onClick={() => jumpToMessage(message.id)}>
+                              {getMessagePreview(message)}
+                            </button>
+                            <button type="button" className={styles.smallButton} onClick={() => togglePinnedMessage(message)}>
+                              Открепить
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               {showMessageSearch ? (
                 <div className={styles.dialogSearchBar}>
                   <input type="text" value={messageSearchQuery} onChange={(event) => setMessageSearchQuery(event.target.value)} className={styles.dialogSearchInput} placeholder="Поиск по сообщениям, файлам и цитатам" />
@@ -1579,6 +1797,13 @@ export default function ChatPage() {
               <div ref={messageAreaRef} className={`${styles.messageArea} ${isDragOver ? styles.messageAreaDragOver : ''}`} onDragEnter={handleDragEnter} onDragOver={(event) => event.preventDefault()} onDragLeave={handleDragLeave} onDrop={handleDropFiles}>
                 {isDragOver ? <div className={styles.dropOverlay}>Отпустите файлы, чтобы отправить в чат</div> : null}
                 <div className={styles.messageStack}>
+                  {hasMoreMessages ? (
+                    <div className={styles.timelineDateRow}>
+                      <button type="button" className={styles.smallMutedButton} onClick={() => loadOlderMessages()} disabled={isLoadingOlderMessages || isLoadingMessages}>
+                        {isLoadingOlderMessages ? 'Загружаем...' : 'Загрузить более ранние сообщения'}
+                      </button>
+                    </div>
+                  ) : null}
                   {timelineItems.map((item) => {
                     if (item.type === 'date') {
                       return (
@@ -1610,6 +1835,12 @@ export default function ChatPage() {
                           ref={(node) => registerMessageNode(message.id, node)}
                           data-message-id={message.id}
                           className={`${isCallEvent ? styles.messageBubbleSystem : ownMessage ? styles.messageBubbleOwn : styles.messageBubblePeer} ${(isPhotoMessage || isStickerMessage) ? styles.messageBubbleMedia : ''} ${isStickerMessage ? styles.messageBubbleSticker : ''} ${highlightedMessageId === message.id ? styles.messageBubbleHighlighted : ''}`}
+                          style={selectedMessageIds.includes(message.id) ? { outline: '2px solid rgba(103, 132, 255, 0.95)', outlineOffset: '2px' } : undefined}
+                          onClick={() => {
+                            if (selectionMode && !isCallEvent && !message.deletedAt) {
+                              toggleMessageSelection(message.id);
+                            }
+                          }}
                           onContextMenu={(event) => {
                             if (message.deletedAt || isCallEvent) {
                               return;
@@ -1707,6 +1938,8 @@ export default function ChatPage() {
                                     ))}
                                   </div>
                                   <button type="button" className={styles.messageToolPrimary} onClick={() => beginReply(message)}>Ответить</button>
+                                  <button type="button" className={styles.messageTool} onClick={() => togglePinnedMessage(message)}>{message.pinnedAt ? 'Открепить' : 'Закрепить'}</button>
+                                  <button type="button" className={styles.messageTool} onClick={() => { setSelectionMode(true); setSelectedMessageIds([message.id]); setActionMessageId(null); }}>Выбрать</button>
                                   {message.kind === 'text' && !message.deletedAt ? <button type="button" className={styles.messageTool} onClick={() => beginQuote(message)}>Цитировать</button> : null}
                                   {ownMessage && message.kind !== 'voice' && message.kind !== 'file' ? <button type="button" className={styles.messageTool} onClick={() => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}>Изменить</button> : null}
                                   {ownMessage ? <button type="button" className={styles.messageToolDanger} onClick={() => deleteMessage(message.id)}>Удалить</button> : null}
@@ -1745,6 +1978,27 @@ export default function ChatPage() {
 
               <div className={styles.composer}>
                 {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
+                {selectionMode ? (
+                  <div className={styles.replyBanner}>
+                    <button type="button" className={styles.replyBannerBody} onClick={() => setShowForwardPicker((prev) => !prev)}>
+                      <strong className={styles.replyBannerTitle}>Выбрано: {selectedMessageIds.length}</strong>
+                      <p className={styles.replyBannerText}>Нажмите, чтобы переслать выбранные сообщения</p>
+                    </button>
+                    <button type="button" className={styles.replyBannerClose} onClick={clearMessageSelection}>X</button>
+                  </div>
+                ) : null}
+                {showForwardPicker && selectionMode ? (
+                  <div className={styles.quoteEditor}>
+                    <strong className={styles.quoteEditorTitle}>Куда переслать сообщения</strong>
+                    <div className={styles.quoteEditorActions} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                      {sidebarItems.map((contact) => (
+                        <button key={contact.id} type="button" className={styles.smallMutedButton} onClick={() => forwardMessagesToContact(contact.id)} disabled={isForwardingMessages}>
+                          {isForwardingMessages ? 'Пересылаем...' : `Переслать: ${contact.displayName || contact.username}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {uploadProgress.length ? (
                   <div className={styles.uploadQueue}>
                     {uploadProgress.map((entry) => (
@@ -1946,6 +2200,8 @@ export default function ChatPage() {
             </div>
             <div className={styles.mobileActionSheetActions}>
               <button type="button" className={styles.mobileActionSheetPrimary} onClick={() => beginReply(actionMessage)}>Ответить</button>
+              <button type="button" className={styles.mobileActionSheetButton} onClick={() => togglePinnedMessage(actionMessage)}>{actionMessage.pinnedAt ? 'Открепить' : 'Закрепить'}</button>
+              <button type="button" className={styles.mobileActionSheetButton} onClick={() => { setSelectionMode(true); setSelectedMessageIds([actionMessage.id]); setActionMessageId(null); }}>Выбрать</button>
               {actionMessage.kind === 'text' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => beginQuote(actionMessage)}>Цитировать</button> : null}
               {actionMessage.senderId === user.id && actionMessage.kind !== 'voice' && actionMessage.kind !== 'file' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => { setEditingMessageId(actionMessage.id); setEditingText(actionMessage.content); setActionMessageId(null); }}>Изменить</button> : null}
               {actionMessage.senderId === user.id ? <button type="button" className={styles.mobileActionSheetDanger} onClick={() => deleteMessage(actionMessage.id)}>Удалить</button> : null}
