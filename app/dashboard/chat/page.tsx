@@ -450,7 +450,7 @@ export default function ChatPage() {
       return;
     }
 
-    const response = await apiFetch<{ contacts: Contact[] }>('/api/contacts', { token });
+    const response = await apiFetch<{ contacts: Contact[] }>('/api/users/contacts', { token });
     setAvailableContacts(response.contacts || []);
   }, [token]);
 

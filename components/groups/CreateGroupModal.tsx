@@ -43,7 +43,10 @@ export default function CreateGroupModal({ contacts, isSubmitting, onClose, onSu
           placeholder="Название группы"
         />
 
+        <p className={styles.dialogProfileText}>Выбрано участников: {selectedIds.length}</p>
+
         <div className={styles.contactList}>
+          {availableContacts.length === 0 ? <p className={styles.galleryEmpty}>Пока нет контактов, которых можно добавить в группу.</p> : null}
           {availableContacts.map((contact) => {
             const selected = selectedIds.includes(contact.id);
             return (
@@ -75,7 +78,7 @@ export default function CreateGroupModal({ contacts, isSubmitting, onClose, onSu
             type="button"
             className={styles.secondaryButton}
             onClick={() => onSubmit(title, selectedIds)}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !title.trim() || selectedIds.length === 0}
           >
             {isSubmitting ? 'Создаем...' : 'Создать группу'}
           </button>
