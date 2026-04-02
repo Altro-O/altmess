@@ -243,6 +243,7 @@ export default function ChatPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [dialogScope, setDialogScope] = useState<'all' | 'direct' | 'group'>('all');
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
   const [pageError, setPageError] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -983,6 +984,17 @@ export default function ChatPage() {
     () => sidebarItems.find((contact) => contact.id === activeContactId) ?? null,
     [activeContactId, sidebarItems],
   );
+  const visibleSidebarItems = useMemo(() => {
+    if (dialogScope === 'direct') {
+      return sidebarItems.filter((contact) => contact.type !== 'group');
+    }
+
+    if (dialogScope === 'group') {
+      return sidebarItems.filter((contact) => contact.type === 'group');
+    }
+
+    return sidebarItems;
+  }, [dialogScope, sidebarItems]);
 
   const selectedMessages = useMemo(
     () => messages.filter((message) => selectedMessageIds.includes(message.id)),
@@ -1957,6 +1969,12 @@ export default function ChatPage() {
             <button type="button" className={styles.secondaryButton} onClick={() => setShowCreateGroupModal(true)}>Новая группа</button>
           </div>
 
+          <div className={styles.sidebarSegments}>
+            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'all' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('all')}>Все</button>
+            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'direct' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('direct')}>Контакты</button>
+            <button type="button" className={`${styles.sidebarSegment} ${dialogScope === 'group' ? styles.sidebarSegmentActive : ''}`} onClick={() => setDialogScope('group')}>Команды</button>
+          </div>
+
           <input
             type="text"
             value={searchQuery}
@@ -1966,7 +1984,7 @@ export default function ChatPage() {
           />
 
           <div className={styles.contactList}>
-            {sidebarItems.map((contact) => (
+            {visibleSidebarItems.map((contact) => (
               <button key={contact.id} type="button" className={`${styles.contact} ${activeContactId === contact.id ? styles.contactActive : ''}`} onClick={() => handleSelectContact(contact.id)}>
                 <UserAvatar
                   avatarUrl={contact.avatarUrl}

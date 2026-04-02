@@ -128,6 +128,54 @@
   background: rgba(248, 250, 252, 0.9);
 }
 
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.uploadCard {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  width: 100%;
+  padding: 18px;
+  border: 1px dashed rgba(31, 111, 255, 0.28);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(31, 111, 255, 0.06), rgba(19, 183, 166, 0.08));
+  text-align: left;
+}
+
+.uploadIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  color: #1256ff;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.uploadTitle {
+  color: #111827;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.uploadText {
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .cropCard {
   display: grid;
   gap: 12px;

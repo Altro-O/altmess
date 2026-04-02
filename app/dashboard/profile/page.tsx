@@ -76,6 +76,7 @@ export default function ProfilePage() {
   const [dragStart, setDragStart] = useState<{ x: number; y: number; cropX: number; cropY: number } | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const cropViewportRef = useRef<HTMLDivElement | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const [cropViewportSize, setCropViewportSize] = useState(320);
   const [cropMetrics, setCropMetrics] = useState<CropMetrics | null>(null);
 
@@ -384,7 +385,12 @@ export default function ProfilePage() {
           <div className={styles.sectionCard}>
           <div className={styles.field}>
             <span>Загрузка аватара</span>
-            <input type="file" accept="image/*" onChange={handleAvatarUpload} className={styles.fileInput} />
+            <input ref={avatarFileInputRef} type="file" accept="image/*" onChange={handleAvatarUpload} className={styles.hiddenFileInput} />
+            <button type="button" className={styles.uploadCard} onClick={() => avatarFileInputRef.current?.click()}>
+              <span className={styles.uploadIcon}>+</span>
+              <span className={styles.uploadTitle}>Загрузить фотографию</span>
+              <span className={styles.uploadText}>Выберите фото с устройства. После этого можно будет подвинуть и приблизить изображение.</span>
+            </button>
             <span className={styles.hint}>После выбора можно подвигать и приблизить изображение перед загрузкой.</span>
             {avatarUrl ? <button type="button" className={styles.dangerLinkButton} onClick={removeAvatar}>Удалить аватар</button> : null}
           </div>
@@ -441,11 +447,6 @@ export default function ProfilePage() {
             </div>
           ) : null}
 
-          <label className={styles.field}>
-            <span>Или прямая ссылка на изображение</span>
-            <input value={avatarUrl} onChange={(event) => { setAvatarUrl(event.target.value); setAvatarStorageKey(null); setAvatarStorageKind(null); }} className={styles.input} placeholder="https://site.com/avatar.jpg" />
-            <span className={styles.hint}>Нужна именно ссылка на сам файл картинки, а не на страницу поиска.</span>
-          </label>
           </div>
 
           <div className={styles.sectionCard}>

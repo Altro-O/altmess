@@ -38,6 +38,32 @@
   font-size: 14px;
 }
 
+.sidebarSegments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(17, 24, 39, 0.05);
+}
+
+.sidebarSegment {
+  border: 0;
+  min-height: 38px;
+  border-radius: 14px;
+  background: transparent;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.sidebarSegmentActive {
+  background: rgba(255, 255, 255, 0.96);
+  color: #111827;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
 .contactList {
   display: grid;
   gap: 10px;
