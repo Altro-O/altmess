@@ -134,7 +134,8 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     return [selfEntry, ...others];
   }, [activeParticipants, localStream, remoteStreams, videoUnavailable]);
-  const featuredParticipantId = pinnedParticipantId || dominantSpeakerId || (participantCount > 6 ? participantEntries.find((participant) => !participant.isSelf)?.id || 'self' : null);
+  const allowAutoFeaturedLayout = participantCount <= 2 || participantCount >= 5;
+  const featuredParticipantId = pinnedParticipantId || (allowAutoFeaturedLayout ? (dominantSpeakerId || (participantCount > 6 ? participantEntries.find((participant) => !participant.isSelf)?.id || 'self' : null)) : null);
   const featuredParticipant = featuredParticipantId ? participantEntries.find((participant) => participant.id === featuredParticipantId) || participantEntries[0] : null;
   const railParticipants = featuredParticipant ? participantEntries.filter((participant) => participant.id !== featuredParticipant.id) : [];
 
@@ -610,20 +611,22 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
             <span>Участников в звонке: {activeParticipants.length + 1}</span>
             <span>{['Вы', ...activeParticipants.map(([, user]) => user.displayName || user.username)].join(' • ')}</span>
             {activeSpeakerIds.length > 0 ? <span>Сейчас говорят: {activeSpeakerIds.map((participantId) => participantEntries.find((participant) => participant.id === participantId)?.label || 'Участник').join(', ')}</span> : null}
-            {dominantSpeakerId ? <span>В фокусе: {participantEntries.find((participant) => participant.id === dominantSpeakerId)?.label || 'Участник'}</span> : null}
+            {featuredParticipant && allowAutoFeaturedLayout ? <span>В фокусе: {featuredParticipant.label}</span> : null}
             {notice ? <p className={styles.notice}>{notice}</p> : null}
           </div>
 
           <div className={styles.groupStage}>
             {featuredParticipant ? (
               <div className={styles.groupFeaturedLayout}>
-                <ParticipantTile
-                  participant={featuredParticipant}
-                  isFeatured
-                  isPinned={pinnedParticipantId === featuredParticipant.id}
-                  isActiveSpeaker={activeSpeakerIds.includes(featuredParticipant.id)}
-                  onPin={() => setPinnedParticipantId((prev) => (prev === featuredParticipant.id ? null : featuredParticipant.id))}
-                />
+                <div key={featuredParticipant.id} className={styles.groupFeaturedSlot}>
+                  <ParticipantTile
+                    participant={featuredParticipant}
+                    isFeatured
+                    isPinned={pinnedParticipantId === featuredParticipant.id}
+                    isActiveSpeaker={activeSpeakerIds.includes(featuredParticipant.id)}
+                    onPin={() => setPinnedParticipantId((prev) => (prev === featuredParticipant.id ? null : featuredParticipant.id))}
+                  />
+                </div>
                 <div className={styles.groupParticipantRail}>
                   {railParticipants.map((participant) => (
                     <ParticipantTile
