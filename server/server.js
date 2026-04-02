@@ -9,12 +9,16 @@ const fs = require('fs/promises');
 const path = require('path');
 const webpush = require('web-push');
 const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
+const { createGroupCallStore } = require('./group-calls');
 const {
   ensureGroupsState,
   isGroupContactId,
   getGroupByContactId,
   isGroupMember,
+  isGroupOwner,
   buildGroupContact,
+  buildGroupMembers,
+  buildAvailableGroupContacts,
   buildGroupDialogs,
   getGroupPage,
   createGroupRecord,
@@ -44,6 +48,7 @@ const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
 ];
+const groupCallStore = createGroupCallStore();
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
@@ -968,6 +973,75 @@ app.prepare().then(async () => {
       emitToUser(memberId, 'group:new', { group: buildGroupContact(db, group, memberId, sanitizeMessage) });
     });
     res.status(201).json({ group: buildGroupContact(db, group, req.user.id, sanitizeMessage) });
+  });
+
+  expressApp.get('/api/groups/:groupId', authMiddleware, (req, res) => {
+    const db = readDb();
+    const group = db.groups.find((entry) => entry.id === String(req.params.groupId || ''));
+
+    if (!group || !isGroupMember(group, req.user.id)) {
+      res.status(404).json({ error: 'Группа не найдена' });
+      return;
+    }
+
+    res.json({
+      group: buildGroupContact(db, group, req.user.id, sanitizeMessage),
+      members: buildGroupMembers(db, group, publicUser),
+      availableContacts: buildAvailableGroupContacts(db, group, req.user.id, publicUser),
+    });
+  });
+
+  expressApp.patch('/api/groups/:groupId', authMiddleware, async (req, res) => {
+    const db = readDb();
+    const group = db.groups.find((entry) => entry.id === String(req.params.groupId || ''));
+
+    if (!group || !isGroupMember(group, req.user.id)) {
+      res.status(404).json({ error: 'Группа не найдена' });
+      return;
+    }
+
+    if (!isGroupOwner(group, req.user.id)) {
+      res.status(403).json({ error: 'Только владелец группы может управлять участниками' });
+      return;
+    }
+
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const addMemberIds = Array.isArray(req.body?.addMemberIds) ? req.body.addMemberIds.map(String) : [];
+    const removeMemberIds = Array.isArray(req.body?.removeMemberIds) ? req.body.removeMemberIds.map(String) : [];
+    const validUserIds = new Set(db.users.map((user) => user.id));
+
+    if (title) {
+      group.title = title.slice(0, 60);
+    }
+
+    const previousMemberIds = [...group.memberIds];
+    const nextMembers = new Set(group.memberIds);
+    addMemberIds.forEach((memberId) => {
+      if (validUserIds.has(memberId)) {
+        nextMembers.add(memberId);
+      }
+    });
+    removeMemberIds.forEach((memberId) => {
+      if (memberId !== group.ownerId) {
+        nextMembers.delete(memberId);
+      }
+    });
+    group.memberIds = Array.from(nextMembers);
+
+    await writeDb(db);
+
+    group.memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'group:update', { group: buildGroupContact(db, group, memberId, sanitizeMessage) });
+    });
+    previousMemberIds
+      .filter((memberId) => !group.memberIds.includes(memberId))
+      .forEach((memberId) => emitToUser(memberId, 'group:removed', { groupId: group.id }));
+
+    res.json({
+      group: buildGroupContact(db, group, req.user.id, sanitizeMessage),
+      members: buildGroupMembers(db, group, publicUser),
+      availableContacts: buildAvailableGroupContacts(db, group, req.user.id, publicUser),
+    });
   });
 
   expressApp.get('/api/preferences', authMiddleware, (req, res) => {

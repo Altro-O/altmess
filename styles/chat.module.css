@@ -1528,6 +1528,28 @@
   font-weight: 700;
 }
 
+.groupMemberList {
+  display: grid;
+  gap: 10px;
+}
+
+.groupMemberCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.groupMemberIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 @media (max-width: 960px) {
   .chatPage {
     grid-template-columns: 1fr;

@@ -84,6 +84,12 @@ export interface MessagesPage {
   nextCursor: string | null;
 }
 
+export interface GroupDetails {
+  group: Contact;
+  members: Contact[];
+  availableContacts: Contact[];
+}
+
 type RequestOptions = RequestInit & {
   token?: string | null;
 };

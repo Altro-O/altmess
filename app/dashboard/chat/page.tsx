@@ -7,7 +7,7 @@ import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
-import { apiFetch, type ChatMessage, type Contact, type MessagesPage } from '../../../utils/api';
+import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
 const MOBILE_BREAKPOINT = 960;
@@ -271,6 +271,10 @@ export default function ChatPage() {
   const [showDialogProfile, setShowDialogProfile] = useState(false);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<Contact[]>([]);
+  const [groupAvailableContacts, setGroupAvailableContacts] = useState<Contact[]>([]);
+  const [isLoadingGroupDetails, setIsLoadingGroupDetails] = useState(false);
+  const [isUpdatingGroupMembers, setIsUpdatingGroupMembers] = useState(false);
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -648,6 +652,24 @@ export default function ChatPage() {
           setSidebarItems((prev) => sortContactsWithPins([group, ...prev.filter((contact) => contact.id !== group.id)], pinnedChatIds));
         });
 
+        socket.on('group:update', ({ group }: { group: Contact }) => {
+          setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === group.id ? { ...contact, ...group } : contact)), pinnedChatIds));
+          if (activeContactRef.current === group.id && showDialogProfile) {
+            loadGroupDetails(group.id);
+          }
+        });
+
+        socket.on('group:removed', ({ groupId }: { groupId: string }) => {
+          const targetId = `group:${groupId}`;
+          setSidebarItems((prev) => prev.filter((contact) => contact.id !== targetId));
+          if (activeContactRef.current === targetId) {
+            setActiveContactId(null);
+            setMessages([]);
+            setPinnedMessages([]);
+            setShowDialogProfile(false);
+          }
+        });
+
         socket.on('call:incoming', ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
           setCallSession({
             callId,
@@ -1009,6 +1031,7 @@ export default function ChatPage() {
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
   const isActiveGroupChat = activeContact?.type === 'group';
+  const isActiveGroupOwner = Boolean(isActiveGroupChat && user?.id && activeContact?.ownerId === user.id);
 
   const getForwardSenderName = (message: ChatMessage) => {
     if (message.senderId === user?.id) {
@@ -1059,6 +1082,61 @@ export default function ChatPage() {
       setIsCreatingGroup(false);
     }
   }, [pinnedChatIds, token]);
+
+  const loadGroupDetails = useCallback(async (groupContactId: string) => {
+    if (!token || !isGroupContact(groupContactId)) {
+      return;
+    }
+
+    const groupId = groupContactId.slice('group:'.length);
+    setIsLoadingGroupDetails(true);
+
+    try {
+      const response = await apiFetch<GroupDetails>(`/api/groups/${groupId}`, { token });
+      setGroupMembers(response.members || []);
+      setGroupAvailableContacts(response.availableContacts || []);
+      setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === response.group.id ? { ...contact, ...response.group } : contact)), pinnedChatIds));
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить участников группы');
+    } finally {
+      setIsLoadingGroupDetails(false);
+    }
+  }, [pinnedChatIds, token]);
+
+  const updateGroupMembers = useCallback(async (payload: { addMemberIds?: string[]; removeMemberIds?: string[] }) => {
+    if (!token || !activeContactId || !isGroupContact(activeContactId)) {
+      return;
+    }
+
+    setIsUpdatingGroupMembers(true);
+    try {
+      const response = await apiFetch<GroupDetails>(`/api/groups/${activeContactId.slice('group:'.length)}`, {
+        method: 'PATCH',
+        token,
+        body: JSON.stringify(payload),
+      });
+      setGroupMembers(response.members || []);
+      setGroupAvailableContacts(response.availableContacts || []);
+      setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === response.group.id ? { ...contact, ...response.group } : contact)), pinnedChatIds));
+      setPageError('');
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось обновить группу');
+    } finally {
+      setIsUpdatingGroupMembers(false);
+    }
+  }, [activeContactId, pinnedChatIds, token]);
+
+  useEffect(() => {
+    const currentContact = sidebarItems.find((contact) => contact.id === activeContactId) || null;
+
+    if (!showDialogProfile || !currentContact || currentContact.type !== 'group') {
+      setGroupMembers([]);
+      setGroupAvailableContacts([]);
+      return;
+    }
+
+    loadGroupDetails(currentContact.id);
+  }, [activeContactId, loadGroupDetails, showDialogProfile, sidebarItems]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!activeContactId || !nextMessagesCursor || isLoadingOlderMessages) {
@@ -2261,6 +2339,74 @@ export default function ChatPage() {
               <button type="button" className={styles.secondaryButton} onClick={() => togglePinnedChat(activeContact.id)}>{isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}</button>
               <button type="button" className={styles.secondaryButton} onClick={() => { setShowDialogProfile(false); setShowMessageSearch(true); }}>Поиск в диалоге</button>
             </div>
+            {activeContact.type === 'group' ? (
+              <>
+                <div className={styles.galleryHeaderRow}>
+                  <strong>Участники</strong>
+                  <span>{groupMembers.length || activeContact.memberIds?.length || 0}</span>
+                </div>
+                {isLoadingGroupDetails ? <p className={styles.galleryEmpty}>Загружаем участников...</p> : null}
+                {groupMembers.length ? (
+                  <div className={styles.groupMemberList}>
+                    {groupMembers.map((member) => (
+                      <div key={member.id} className={styles.groupMemberCard}>
+                        <div className={styles.groupMemberIdentity}>
+                          <UserAvatar
+                            avatarUrl={member.avatarUrl}
+                            alt={member.displayName || member.username}
+                            fallback={getAvatarLabel(member)}
+                            className={`${styles.avatar} ${styles[`avatar_${member.avatarColor || 'ocean'}`]}`}
+                            imageClassName={styles.avatarImage}
+                          />
+                          <div>
+                            <div className={styles.contactName}>{member.displayName || member.username}</div>
+                            <div className={styles.contactPreview}>{member.id === activeContact.ownerId ? 'Владелец группы' : (member.bio || member.email || member.username)}</div>
+                          </div>
+                        </div>
+                        {isActiveGroupOwner && member.id !== activeContact.ownerId ? (
+                          <button type="button" className={styles.smallMutedButton} onClick={() => updateGroupMembers({ removeMemberIds: [member.id] })} disabled={isUpdatingGroupMembers}>
+                            Удалить
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {isActiveGroupOwner ? (
+                  <>
+                    <div className={styles.galleryHeaderRow}>
+                      <strong>Добавить участников</strong>
+                      <span>{groupAvailableContacts.length}</span>
+                    </div>
+                    {groupAvailableContacts.length ? (
+                      <div className={styles.groupMemberList}>
+                        {groupAvailableContacts.map((member) => (
+                          <div key={member.id} className={styles.groupMemberCard}>
+                            <div className={styles.groupMemberIdentity}>
+                              <UserAvatar
+                                avatarUrl={member.avatarUrl}
+                                alt={member.displayName || member.username}
+                                fallback={getAvatarLabel(member)}
+                                className={`${styles.avatar} ${styles[`avatar_${member.avatarColor || 'ocean'}`]}`}
+                                imageClassName={styles.avatarImage}
+                              />
+                              <div>
+                                <div className={styles.contactName}>{member.displayName || member.username}</div>
+                                <div className={styles.contactPreview}>{member.bio || member.email || member.username}</div>
+                              </div>
+                            </div>
+                            <button type="button" className={styles.smallMutedButton} onClick={() => updateGroupMembers({ addMemberIds: [member.id] })} disabled={isUpdatingGroupMembers}>
+                              Добавить
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : <p className={styles.galleryEmpty}>Все доступные контакты уже в группе.</p>}
+                  </>
+                ) : null}
+              </>
+            ) : null}
             <div className={styles.galleryHeaderRow}>
               <strong>Галерея</strong>
               <span>{galleryImages.length}</span>

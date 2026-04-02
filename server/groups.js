@@ -29,6 +29,10 @@ function isGroupMember(group, userId) {
   return Array.isArray(group?.memberIds) && group.memberIds.includes(userId);
 }
 
+function isGroupOwner(group, userId) {
+  return Boolean(group && group.ownerId === userId);
+}
+
 function getGroupMessages(db, groupId) {
   return db.messages
     .filter((message) => message.groupId === groupId)
@@ -109,6 +113,36 @@ function createGroupRecord({ ownerId, title, memberIds }) {
   };
 }
 
+function buildGroupMembers(db, group, publicUser) {
+  return group.memberIds
+    .map((memberId) => db.users.find((user) => user.id === memberId))
+    .filter(Boolean)
+    .map((user) => ({
+      ...publicUser(user),
+      type: 'direct',
+      ownerId: group.ownerId,
+      memberIds: group.memberIds,
+      online: false,
+      unreadCount: 0,
+      lastMessage: null,
+    }));
+}
+
+function buildAvailableGroupContacts(db, group, currentUserId, publicUser) {
+  const excluded = new Set(group.memberIds);
+  excluded.add(currentUserId);
+
+  return db.users
+    .filter((user) => !excluded.has(user.id))
+    .map((user) => ({
+      ...publicUser(user),
+      type: 'direct',
+      online: false,
+      unreadCount: 0,
+      lastMessage: null,
+    }));
+}
+
 function normalizePinnedTargetIds(input, currentUserId, db) {
   const validUserIds = new Set(db.users.map((user) => String(user.id)));
   const validGroupIds = new Set(db.groups.map((group) => toGroupContactId(group.id)));
@@ -126,7 +160,10 @@ module.exports = {
   isGroupContactId,
   getGroupByContactId,
   isGroupMember,
+  isGroupOwner,
   buildGroupContact,
+  buildGroupMembers,
+  buildAvailableGroupContacts,
   buildGroupDialogs,
   getGroupPage,
   createGroupRecord,
