@@ -37,7 +37,6 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const closingRef = useRef(false);
-  const offeredUsersRef = useRef<Set<string>>(new Set());
 
   const activeParticipants = useMemo(
     () => Object.entries(participants).filter(([userId]) => userId !== currentUserId),
@@ -73,8 +72,6 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       connection.close();
       peerConnectionsRef.current.delete(userId);
     }
-    offeredUsersRef.current.delete(userId);
-
     setRemoteStreams((prev) => {
       const next = { ...prev };
       delete next[userId];
@@ -127,7 +124,6 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
   const createOfferForUser = async (user: Contact) => {
     const connection = ensurePeerConnection(user);
-    offeredUsersRef.current.add(user.id);
     const offer = await connection.createOffer();
     await connection.setLocalDescription(offer);
     socket.emit('group-call:offer', {
@@ -154,11 +150,6 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
           }, {});
           setParticipants((prev) => ({ ...prev, ...participantMap }));
 
-          for (const participant of response.room.participants) {
-            ensurePeerConnection(participant);
-            await createOfferForUser(participant);
-          }
-
           resolve();
         });
       });
@@ -178,22 +169,6 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     joinCall();
   }, [call.initiator]);
-
-  useEffect(() => {
-    if (!localStreamRef.current || phase !== 'active') {
-      return;
-    }
-
-    activeParticipants.forEach(([, user]) => {
-      if (offeredUsersRef.current.has(user.id)) {
-        return;
-      }
-
-      createOfferForUser(user).catch((error) => {
-        console.error('Failed to create group call offer:', error);
-      });
-    });
-  }, [activeParticipants, phase]);
 
   useEffect(() => {
     const handleIncomingOffer = async ({ groupId, fromUserId, offer }: { groupId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
@@ -256,6 +231,12 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }
 
       setParticipants((prev) => ({ ...prev, [user.id]: user }));
+
+      if (localStreamRef.current && phase === 'active') {
+        createOfferForUser(user).catch((error) => {
+          console.error('Failed to create group call offer for joined user:', error);
+        });
+      }
     };
 
     const handleUserLeft = ({ groupId, userId }: { groupId: string; userId: string }) => {
@@ -295,7 +276,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       socket.off('group-call:user-left', handleUserLeft);
       socket.off('group-call:ended', handleEnded);
     };
-  }, [call.groupId, currentUserId, onClose, participants, socket]);
+  }, [call.groupId, currentUserId, onClose, participants, phase, socket]);
 
   useEffect(() => () => {
     if (!closingRef.current) {
