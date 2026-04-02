@@ -853,8 +853,8 @@ export default function VideoCall({ socket, call, iceServers, minimized = false,
   };
 
   const clampMinimizedPosition = (nextX: number, nextY: number) => {
-    const width = minimizedCallRef.current?.offsetWidth || 280;
-    const height = minimizedCallRef.current?.offsetHeight || 220;
+    const width = minimizedCallRef.current?.offsetWidth || 220;
+    const height = minimizedCallRef.current?.offsetHeight || 170;
     const maxX = Math.max(12, window.innerWidth - width - 12);
     const maxY = Math.max(12, window.innerHeight - height - 12);
 
@@ -872,7 +872,7 @@ export default function VideoCall({ socket, call, iceServers, minimized = false,
     const rect = minimizedCallRef.current?.getBoundingClientRect();
     const origin = minimizedPosition || {
       x: rect?.left || 12,
-      y: rect?.top || Math.max(12, window.innerHeight - (rect?.height || 220) - 18),
+      y: rect?.top || Math.max(12, window.innerHeight - (rect?.height || 170) - 18),
     };
 
     minimizedDragRef.current = {

@@ -405,10 +405,11 @@
   z-index: 130;
   display: grid;
   gap: 4px;
-  min-width: 220px;
-  padding: 14px 16px;
+  width: min(220px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 10px 10px 12px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   background: rgba(15, 23, 42, 0.88);
   color: white;
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.28);
@@ -417,14 +418,14 @@
 
 .minimizedSurface {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
 }
 
 .minimizedDragHandle {
   display: flex;
   justify-content: center;
-  padding: 2px 0 6px;
+  padding: 0 0 4px;
   touch-action: none;
   cursor: grab;
 }
@@ -440,8 +441,8 @@
 .minimizedAudioStage {
   position: relative;
   overflow: hidden;
-  border-radius: 16px;
-  min-height: 128px;
+  border-radius: 14px;
+  min-height: 96px;
   background: rgba(8, 18, 35, 0.9);
 }
 
@@ -460,12 +461,12 @@
 
 .minimizedLocalPreview {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
-  width: 76px;
-  height: 104px;
+  right: 8px;
+  bottom: 8px;
+  width: 54px;
+  height: 72px;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(15, 23, 42, 0.88);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
@@ -473,21 +474,21 @@
 
 .minimizedMeta {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .minimizedTitle {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .minimizedText {
-  font-size: 12px;
+  font-size: 11px;
   color: rgba(255, 255, 255, 0.7);
 }
 
 .minimizedNotice {
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   color: #fef3c7;
 }
@@ -495,15 +496,15 @@
 .minimizedActionsRow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .minimizedAction,
 .minimizedDanger {
   border: 0;
-  min-height: 38px;
-  border-radius: 12px;
-  font-size: 12px;
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
