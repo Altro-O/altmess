@@ -56,6 +56,9 @@ export default function VideoCall({ socket, call, iceServers, minimized = false,
   const ringtoneAudioContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringtoneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minimizedCallRef = useRef<HTMLDivElement | null>(null);
+  const minimizedDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const [minimizedPosition, setMinimizedPosition] = useState<{ x: number; y: number } | null>(null);
 
   const clearUnstableConnectionTimer = () => {
     if (unstableConnectionTimerRef.current) {
@@ -849,6 +852,74 @@ export default function VideoCall({ socket, call, iceServers, minimized = false,
     onClose();
   };
 
+  const clampMinimizedPosition = (nextX: number, nextY: number) => {
+    const width = minimizedCallRef.current?.offsetWidth || 280;
+    const height = minimizedCallRef.current?.offsetHeight || 220;
+    const maxX = Math.max(12, window.innerWidth - width - 12);
+    const maxY = Math.max(12, window.innerHeight - height - 12);
+
+    return {
+      x: Math.min(Math.max(12, nextX), maxX),
+      y: Math.min(Math.max(12, nextY), maxY),
+    };
+  };
+
+  const handleMinimizedPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+
+    const rect = minimizedCallRef.current?.getBoundingClientRect();
+    const origin = minimizedPosition || {
+      x: rect?.left || 12,
+      y: rect?.top || Math.max(12, window.innerHeight - (rect?.height || 220) - 18),
+    };
+
+    minimizedDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: origin.x,
+      originY: origin.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleMinimizedPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = minimizedDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const nextPosition = clampMinimizedPosition(
+      drag.originX + (event.clientX - drag.startX),
+      drag.originY + (event.clientY - drag.startY),
+    );
+    setMinimizedPosition(nextPosition);
+  };
+
+  const handleMinimizedPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (minimizedDragRef.current?.pointerId === event.pointerId) {
+      minimizedDragRef.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  useEffect(() => {
+    if (!minimized || !minimizedPosition) {
+      return;
+    }
+
+    const handleResize = () => {
+      setMinimizedPosition((prev) => (prev ? clampMinimizedPosition(prev.x, prev.y) : prev));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [minimized, minimizedPosition]);
+
   const statusText = useMemo(() => {
     if (phase === 'incoming') return 'Входящий звонок';
     if (phase === 'outgoing') return 'Ожидаем ответ';
@@ -862,7 +933,10 @@ export default function VideoCall({ socket, call, iceServers, minimized = false,
 
   if (minimized && phase !== 'incoming') {
     return (
-      <div className={styles.minimizedCall}>
+      <div ref={minimizedCallRef} className={styles.minimizedCall} style={minimizedPosition ? { inset: `${minimizedPosition.y}px auto auto ${minimizedPosition.x}px`, right: 'auto', bottom: 'auto' } : undefined}>
+        <div className={styles.minimizedDragHandle} onPointerDown={handleMinimizedPointerDown} onPointerMove={handleMinimizedPointerMove} onPointerUp={handleMinimizedPointerUp} onPointerCancel={handleMinimizedPointerUp}>
+          <span className={styles.minimizedDragGrip} />
+        </div>
         <div className={styles.minimizedSurface} role="button" tabIndex={0} onClick={() => onRestore?.()} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRestore?.(); } }}>
           {call.mode === 'video' ? (
             <div className={styles.minimizedMediaFrame}>

@@ -11,6 +11,8 @@ import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import ChatHeader from '../../../components/chat/ChatHeader';
 import ChatSidebar from '../../../components/chat/ChatSidebar';
 import MessageTimeline from '../../../components/chat/MessageTimeline';
+import ChatComposer from '../../../components/chat/ChatComposer';
+import MessageActionSheet from '../../../components/chat/MessageActionSheet';
 import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
@@ -2029,196 +2031,65 @@ export default function ChatPage() {
                 getTimelineDateLabel={getTimelineDateLabel}
               />
 
-              <div className={styles.composer}>
-                {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
-                {selectionMode ? (
-                  <div className={styles.replyBanner}>
-                    <button type="button" className={styles.replyBannerBody} onClick={() => setShowForwardPicker((prev) => !prev)}>
-                      <strong className={styles.replyBannerTitle}>Выбрано: {selectedMessageIds.length}</strong>
-                      <p className={styles.replyBannerText}>Нажмите, чтобы переслать выбранные сообщения</p>
-                    </button>
-                    <button type="button" className={styles.replyBannerClose} onClick={clearMessageSelection}>X</button>
-                  </div>
-                ) : null}
-                {showForwardPicker && selectionMode ? (
-                  <div className={styles.quoteEditor}>
-                    <strong className={styles.quoteEditorTitle}>Куда переслать сообщения</strong>
-                    <div className={styles.quoteEditorActions} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                      {sidebarItems.map((contact) => (
-                        <button key={contact.id} type="button" className={styles.smallMutedButton} onClick={() => forwardMessagesToContact(contact.id)} disabled={isForwardingMessages}>
-                          {isForwardingMessages ? 'Пересылаем...' : `Переслать: ${contact.displayName || contact.username}`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {uploadProgress.length ? (
-                  <div className={styles.uploadQueue}>
-                    {uploadProgress.map((entry) => (
-                      <div key={entry.name} className={styles.uploadQueueItem}>
-                        <div className={styles.uploadQueueMeta}>
-                          <strong>{entry.name}</strong>
-                          <span>{entry.progress}%</span>
-                        </div>
-                        <div className={styles.uploadBar}><span style={{ width: `${entry.progress}%` }} /></div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {replyMessage ? (
-                  <div className={styles.replyBanner}>
-                    <button type="button" className={styles.replyBannerBody} onClick={openQuoteEditor} disabled={replyMessage.kind !== 'text' || !!replyMessage.deletedAt}>
-                      <strong className={styles.replyBannerTitle}>Ответ на сообщение</strong>
-                      <p className={styles.replyBannerText}>{replyQuote || getMessagePreview(replyMessage)}</p>
-                      {replyMessage.kind === 'text' && !replyMessage.deletedAt ? <span className={styles.replyBannerHint}>{replyQuote ? 'Нажмите, чтобы изменить цитату' : 'Нажмите, чтобы выбрать цитату'}</span> : null}
-                    </button>
-                    <button type="button" className={styles.replyBannerClose} onClick={clearReply}>X</button>
-                  </div>
-                ) : null}
-                {showQuoteEditor && replyMessage?.kind === 'text' ? (
-                  <div className={styles.quoteEditor}>
-                    <strong className={styles.quoteEditorTitle}>Выберите фрагмент для цитаты</strong>
-                    <p className={styles.quoteEditorText}>Выделите нужный кусок текста. На iPhone кнопка снизу берет уже сохраненное выделение, поэтому оно не теряется при нажатии.</p>
-                    <div ref={quoteSelectionRef} className={styles.quoteEditorSelection}>
-                      {quoteDraft}
-                    </div>
-                    <div className={styles.quoteEditorSelectionState}>
-                      {selectedQuoteText ? `Выбрано: ${selectedQuoteText}` : 'Пока ничего не выбрано. Если нажать сейчас, процитируется весь текст.'}
-                    </div>
-                    <div className={styles.quoteEditorActions}>
-                      <button type="button" className={styles.smallMutedButton} onClick={() => { setReplyQuote(''); setSelectedQuoteText(''); setShowQuoteEditor(false); }}>Отмена</button>
-                      <button type="button" className={styles.smallButton} onClick={applyQuoteSelection}>Цитировать</button>
-                    </div>
-                  </div>
-                ) : null}
-                {showUnifiedMobilePicker ? (
-                  <div className={styles.mobilePickerSheet}>
-                    <div className={styles.mobilePickerTabs}>
-                      <button
-                        type="button"
-                        className={`${styles.mobilePickerTab} ${mobilePickerTab === 'emoji' ? styles.mobilePickerTabActive : ''}`}
-                        onClick={() => { setMobilePickerTab('emoji'); setShowEmojiPicker(true); setShowStickerPicker(false); }}
-                      >
-                        Эмодзи
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.mobilePickerTab} ${mobilePickerTab === 'sticker' ? styles.mobilePickerTabActive : ''}`}
-                        onClick={() => { setMobilePickerTab('sticker'); setShowStickerPicker(true); setShowEmojiPicker(false); }}
-                      >
-                        Стикеры
-                      </button>
-                    </div>
-                    {mobilePickerTab === 'emoji' ? (
-                      <div className={`${styles.emojiPicker} ${styles.mobilePickerBody}`}>
-                        {orderedEmojis.map((emoji) => (
-                          <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className={`${styles.stickerPicker} ${styles.mobilePickerBody}`}>
-                        {orderedStickerPacks.map((pack) => (
-                          <div key={pack.key} className={styles.stickerPack}>
-                            <strong className={styles.stickerPackTitle}>{pack.title}</strong>
-                            <div className={styles.stickerGrid}>
-                              {pack.items.map((fileUrl) => (
-                                <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => sendSticker(pack.key, fileUrl)}>
-                                  {fileUrl.endsWith('.webm') ? (
-                                    <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
-                                  ) : (
-                                    <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-                {!isMobileLayout && showEmojiPicker ? (
-                  <div className={styles.emojiPicker}>
-                    {orderedEmojis.map((emoji) => (
-                      <button key={emoji} type="button" className={styles.emojiButton} onClick={() => appendEmoji(emoji)}>{emoji}</button>
-                    ))}
-                  </div>
-                ) : null}
-                {!isMobileLayout && showStickerPicker ? (
-                  <div className={styles.stickerPicker}>
-                    {orderedStickerPacks.map((pack) => (
-                      <div key={pack.key} className={styles.stickerPack}>
-                        <strong className={styles.stickerPackTitle}>{pack.title}</strong>
-                        <div className={styles.stickerGrid}>
-                          {pack.items.map((fileUrl) => (
-                            <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => sendSticker(pack.key, fileUrl)}>
-                              {fileUrl.endsWith('.webm') ? (
-                                <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
-                              ) : (
-                                <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <form onSubmit={submitMessage} className={styles.composerForm}>
-                  <div className={styles.composerInputWrap}>
-                    <textarea
-                      ref={composerTextareaRef}
-                      value={inputText}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setInputText(nextValue);
-                        if (activeContactId) {
-                          setDraftsByContact((prev) => ({ ...prev, [activeContactId]: nextValue }));
-                        }
-                      }}
-                      onKeyDown={handleComposerKeyDown}
-                      placeholder="Введите сообщение..."
-                      className={styles.composerInput}
-                      rows={1}
-                    />
-                    <div className={styles.composerInlineActions}>
-                      {isMobileLayout ? <button type="button" className={styles.inlineIconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
-                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
-                      </button> : null}
-                      {!isMobileLayout ? <button type="button" className={`${styles.inlineIconButton} ${showStickerPicker ? styles.inlineIconButtonActive : ''}`} onClick={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }} title="Открыть стикеры">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6 3h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5.59L8 21.41A1 1 0 0 1 6.29 20.7V17H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Zm2.75 6.75a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm6.5 0a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Zm-6.6 3.2a1 1 0 0 0-1.3 1.52 7 7 0 0 0 9.3 0 1 1 0 1 0-1.3-1.52 5 5 0 0 1-6.7 0Z" fill="currentColor"/></svg>
-                      </button> : null}
-                      <button type="button" className={`${styles.inlineIconButton} ${(showEmojiPicker || showStickerPicker) ? styles.inlineIconButtonActive : ''}`} onClick={() => {
-                        if (isMobileLayout) {
-                          const opening = !(showEmojiPicker || showStickerPicker);
-                          setMobilePickerTab((prev) => prev || 'emoji');
-                          setShowEmojiPicker(opening ? mobilePickerTab !== 'sticker' : false);
-                          setShowStickerPicker(opening ? mobilePickerTab === 'sticker' : false);
-                          return;
-                        }
-
-                        setShowEmojiPicker((prev) => !prev);
-                        setShowStickerPicker(false);
-                      }} title={isMobileLayout ? 'Открыть эмодзи и стикеры' : 'Открыть эмодзи'}>
-                        <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Zm-3.5-8a1 1 0 0 0-.8 1.6 5.5 5.5 0 0 0 8.6 0A1 1 0 0 0 14.7 14a3.5 3.5 0 0 1-5.4 0 1 1 0 0 0-.8-.4ZM9 10a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 9 10Zm6 0a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 15 10Z" fill="currentColor"/></svg>
-                      </button>
-                      {!inputText.trim() || isRecordingVoice ? (
-                        <button type="button" className={`${styles.inlineIconButton} ${isRecordingVoice ? styles.inlineIconButtonRecord : ''}`} onClick={() => startVoiceRecording()} title={isRecordingVoice ? `Остановить запись ${voiceSeconds}s` : 'Записать голосовое'}>
-                          <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.93V21h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.07A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0Z" fill="currentColor"/></svg>
-                          {isRecordingVoice ? <span className={styles.inlineIconText}>{voiceSeconds}s</span> : null}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <input ref={fileInputRef} type="file" multiple className={styles.hiddenFileInput} onChange={sendFile} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" />
-                  <button type="button" className={styles.iconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={openFilePicker}>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M16.5 6.5a4.5 4.5 0 0 0-6.36 0l-5.3 5.3a3.25 3.25 0 1 0 4.6 4.6l5.47-5.47a2 2 0 1 0-2.83-2.83l-5.12 5.12a.75.75 0 0 0 1.06 1.06l4.77-4.77 1.06 1.06-4.77 4.77a2.25 2.25 0 0 1-3.18-3.18l5.12-5.12a3.5 3.5 0 1 1 4.95 4.95l-5.47 5.47a4.75 4.75 0 1 1-6.72-6.72l5.3-5.3a6 6 0 0 1 8.49 8.49l-4.95 4.95-1.06-1.06 4.95-4.95a4.5 4.5 0 0 0 0-6.36Z" fill="currentColor"/></svg>
-                  </button>
-                  <button type="submit" className={styles.composerButton} aria-label="Отправить сообщение" title="Отправить">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M3.4 11.3 18.8 4.7c1.5-.64 2.98.84 2.34 2.34L14.7 22.6c-.72 1.7-3.13 1.55-3.64-.22l-1.53-5.34-5.31-1.5c-1.8-.5-1.95-2.92-.24-3.65Zm6.95 4.08 1.27 4.44 6.09-14.2-14.2 6.1 4.46 1.26 6.3-6.3.88.88-6.3 6.3Z" fill="currentColor"/></svg>
-                  </button>
-                </form>
-              </div>
+              <ChatComposer
+                pageError={pageError}
+                selectionMode={selectionMode}
+                selectedMessageIds={selectedMessageIds}
+                showForwardPicker={showForwardPicker}
+                sidebarItems={sidebarItems}
+                isForwardingMessages={isForwardingMessages}
+                uploadProgress={uploadProgress}
+                replyMessage={replyMessage}
+                replyQuote={replyQuote}
+                showQuoteEditor={showQuoteEditor}
+                quoteDraft={quoteDraft}
+                selectedQuoteText={selectedQuoteText}
+                showUnifiedMobilePicker={showUnifiedMobilePicker}
+                mobilePickerTab={mobilePickerTab}
+                orderedEmojis={orderedEmojis}
+                orderedStickerPacks={orderedStickerPacks}
+                isMobileLayout={isMobileLayout}
+                isUploadingFile={isUploadingFile}
+                showStickerPicker={showStickerPicker}
+                showEmojiPicker={showEmojiPicker}
+                inputText={inputText}
+                isRecordingVoice={isRecordingVoice}
+                voiceSeconds={voiceSeconds}
+                activeContactId={activeContactId}
+                getMessagePreview={getMessagePreview}
+                onToggleForwardPicker={() => setShowForwardPicker((prev) => !prev)}
+                onClearMessageSelection={clearMessageSelection}
+                onForwardMessages={forwardMessagesToContact}
+                onOpenQuoteEditor={openQuoteEditor}
+                onClearReply={clearReply}
+                onCancelQuoteEditor={() => { setReplyQuote(''); setSelectedQuoteText(''); setShowQuoteEditor(false); }}
+                onApplyQuoteSelection={applyQuoteSelection}
+                onSetMobilePickerTab={(tab) => { setMobilePickerTab(tab); setShowEmojiPicker(tab === 'emoji'); setShowStickerPicker(tab === 'sticker'); }}
+                onAppendEmoji={appendEmoji}
+                onSendSticker={sendSticker}
+                onSubmitMessage={submitMessage}
+                onInputTextChange={(nextValue) => {
+                  setInputText(nextValue);
+                  if (activeContactId) {
+                    setDraftsByContact((prev) => ({ ...prev, [activeContactId]: nextValue }));
+                  }
+                }}
+                onComposerKeyDown={handleComposerKeyDown}
+                onOpenFilePicker={openFilePicker}
+                onToggleStickerPicker={() => { setShowStickerPicker((prev) => !prev); setShowEmojiPicker(false); }}
+                onToggleEmojiPicker={() => { setShowEmojiPicker((prev) => !prev); setShowStickerPicker(false); }}
+                onToggleMobileUnifiedPicker={() => {
+                  const opening = !(showEmojiPicker || showStickerPicker);
+                  setMobilePickerTab((prev) => prev || 'emoji');
+                  setShowEmojiPicker(opening ? mobilePickerTab !== 'sticker' : false);
+                  setShowStickerPicker(opening ? mobilePickerTab === 'sticker' : false);
+                }}
+                onStartVoiceRecording={startVoiceRecording}
+                fileInputRef={fileInputRef}
+                composerTextareaRef={composerTextareaRef}
+                quoteSelectionRef={quoteSelectionRef}
+                onSendFile={sendFile}
+              />
             </>
           ) : (
             <div className={styles.empty}>
@@ -2394,29 +2265,21 @@ export default function ChatPage() {
       ) : null}
 
       {isMobileLayout && actionMessage && !actionMessage.deletedAt && actionMessage.kind !== 'call' ? (
-        <div className={styles.mobileActionSheetBackdrop} onClick={() => setActionMessageId(null)}>
-          <div className={styles.mobileActionSheet} onClick={(event) => event.stopPropagation()}>
-            <div className={styles.mobileActionSheetHandle} />
-            <div className={styles.mobileActionSheetPreview}>
-              {actionMessage.replyTo ? <p className={styles.mobileActionSheetReply}>Ответ на: {getReplySnippet(actionMessage.replyTo)}</p> : null}
-              <p className={styles.mobileActionSheetText}>{getMessagePreview(actionMessage)}</p>
-            </div>
-            <div className={styles.mobileActionSheetReactions}>
-              {orderedEmojis.map((emoji) => (
-                <button key={emoji} type="button" className={styles.mobileActionSheetEmoji} onClick={() => { toggleReaction(actionMessage.id, emoji); setActionMessageId(null); }}>{emoji}</button>
-              ))}
-            </div>
-            <div className={styles.mobileActionSheetActions}>
-              <button type="button" className={styles.mobileActionSheetPrimary} onClick={() => beginReply(actionMessage)}>Ответить</button>
-              <button type="button" className={styles.mobileActionSheetButton} onClick={() => togglePinnedMessage(actionMessage)}>{actionMessage.pinnedAt ? 'Открепить' : 'Закрепить'}</button>
-              <button type="button" className={styles.mobileActionSheetButton} onClick={() => { setSelectionMode(true); setSelectedMessageIds([actionMessage.id]); setActionMessageId(null); }}>Выбрать</button>
-              {actionMessage.kind === 'text' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => beginQuote(actionMessage)}>Цитировать</button> : null}
-              {actionMessage.senderId === user.id && actionMessage.kind !== 'voice' && actionMessage.kind !== 'file' ? <button type="button" className={styles.mobileActionSheetButton} onClick={() => { setEditingMessageId(actionMessage.id); setEditingText(actionMessage.content); setActionMessageId(null); }}>Изменить</button> : null}
-              {actionMessage.senderId === user.id ? <button type="button" className={styles.mobileActionSheetDanger} onClick={() => deleteMessage(actionMessage.id)}>Удалить</button> : null}
-              <button type="button" className={styles.mobileActionSheetCancel} onClick={() => setActionMessageId(null)}>Отмена</button>
-            </div>
-          </div>
-        </div>
+        <MessageActionSheet
+          actionMessage={actionMessage}
+          currentUserId={user.id}
+          orderedEmojis={orderedEmojis}
+          getReplySnippet={getReplySnippet}
+          getMessagePreview={getMessagePreview}
+          onClose={() => setActionMessageId(null)}
+          onToggleReaction={(messageId, emoji) => { toggleReaction(messageId, emoji); setActionMessageId(null); }}
+          onReply={(message) => { beginReply(message); setActionMessageId(null); }}
+          onTogglePinned={(message) => { togglePinnedMessage(message); setActionMessageId(null); }}
+          onSelect={(messageId) => { setSelectionMode(true); setSelectedMessageIds([messageId]); setActionMessageId(null); }}
+          onQuote={(message) => { beginQuote(message); setActionMessageId(null); }}
+          onEdit={(message) => { setEditingMessageId(message.id); setEditingText(message.content); setActionMessageId(null); }}
+          onDelete={(messageId) => { deleteMessage(messageId); setActionMessageId(null); }}
+        />
       ) : null}
     </>
   );

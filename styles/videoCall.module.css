@@ -421,6 +421,21 @@
   cursor: pointer;
 }
 
+.minimizedDragHandle {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 6px;
+  touch-action: none;
+  cursor: grab;
+}
+
+.minimizedDragGrip {
+  width: 42px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
 .minimizedMediaFrame,
 .minimizedAudioStage {
   position: relative;
