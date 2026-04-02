@@ -978,6 +978,7 @@ app.prepare().then(async () => {
   expressApp.get('/api/groups/:groupId', authMiddleware, (req, res) => {
     const db = readDb();
     const group = db.groups.find((entry) => entry.id === String(req.params.groupId || ''));
+    const directDialogs = buildDialogs(req.user.id).filter((contact) => contact.type === 'direct');
 
     if (!group || !isGroupMember(group, req.user.id)) {
       res.status(404).json({ error: 'Группа не найдена' });
@@ -987,13 +988,14 @@ app.prepare().then(async () => {
     res.json({
       group: buildGroupContact(db, group, req.user.id, sanitizeMessage),
       members: buildGroupMembers(db, group, publicUser),
-      availableContacts: buildAvailableGroupContacts(db, group, req.user.id, publicUser),
+      availableContacts: buildAvailableGroupContacts(directDialogs, group, req.user.id),
     });
   });
 
   expressApp.patch('/api/groups/:groupId', authMiddleware, async (req, res) => {
     const db = readDb();
     const group = db.groups.find((entry) => entry.id === String(req.params.groupId || ''));
+    const directDialogs = buildDialogs(req.user.id).filter((contact) => contact.type === 'direct');
 
     if (!group || !isGroupMember(group, req.user.id)) {
       res.status(404).json({ error: 'Группа не найдена' });
@@ -1040,7 +1042,7 @@ app.prepare().then(async () => {
     res.json({
       group: buildGroupContact(db, group, req.user.id, sanitizeMessage),
       members: buildGroupMembers(db, group, publicUser),
-      availableContacts: buildAvailableGroupContacts(db, group, req.user.id, publicUser),
+      availableContacts: buildAvailableGroupContacts(directDialogs, group, req.user.id),
     });
   });
 

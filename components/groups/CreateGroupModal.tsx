@@ -15,10 +15,24 @@ interface CreateGroupModalProps {
 export default function CreateGroupModal({ contacts, isSubmitting, onClose, onSubmit }: CreateGroupModalProps) {
   const [title, setTitle] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const availableContacts = useMemo(
-    () => contacts.filter((contact) => contact.type !== 'group'),
-    [contacts],
+    () => contacts.filter((contact) => {
+      if (contact.type === 'group') {
+        return false;
+      }
+
+      const query = searchQuery.trim().toLowerCase();
+      if (!query) {
+        return true;
+      }
+
+      return [contact.displayName, contact.username, contact.email, contact.bio]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    }),
+    [contacts, searchQuery],
   );
 
   const toggleContact = (contactId: string) => {
@@ -43,10 +57,18 @@ export default function CreateGroupModal({ contacts, isSubmitting, onClose, onSu
           placeholder="Название группы"
         />
 
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          className={styles.dialogSearchInput}
+          placeholder="Поиск по активным диалогам"
+        />
+
         <p className={styles.dialogProfileText}>Выбрано участников: {selectedIds.length}</p>
 
         <div className={styles.contactList}>
-          {availableContacts.length === 0 ? <p className={styles.galleryEmpty}>Пока нет контактов, которых можно добавить в группу.</p> : null}
+          {availableContacts.length === 0 ? <p className={styles.galleryEmpty}>Нет подходящих активных диалогов для добавления в группу.</p> : null}
           {availableContacts.map((contact) => {
             const selected = selectedIds.includes(contact.id);
             return (

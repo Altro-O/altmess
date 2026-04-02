@@ -128,19 +128,11 @@ function buildGroupMembers(db, group, publicUser) {
     }));
 }
 
-function buildAvailableGroupContacts(db, group, currentUserId, publicUser) {
+function buildAvailableGroupContacts(dialogs, group, currentUserId) {
   const excluded = new Set(group.memberIds);
   excluded.add(currentUserId);
 
-  return db.users
-    .filter((user) => !excluded.has(user.id))
-    .map((user) => ({
-      ...publicUser(user),
-      type: 'direct',
-      online: false,
-      unreadCount: 0,
-      lastMessage: null,
-    }));
+  return dialogs.filter((contact) => contact.type === 'direct' && !excluded.has(contact.id));
 }
 
 function normalizePinnedTargetIds(input, currentUserId, db) {

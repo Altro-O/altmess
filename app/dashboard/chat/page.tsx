@@ -275,6 +275,7 @@ export default function ChatPage() {
   const [groupAvailableContacts, setGroupAvailableContacts] = useState<Contact[]>([]);
   const [isLoadingGroupDetails, setIsLoadingGroupDetails] = useState(false);
   const [isUpdatingGroupMembers, setIsUpdatingGroupMembers] = useState(false);
+  const [groupAddSearchQuery, setGroupAddSearchQuery] = useState('');
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -454,8 +455,8 @@ export default function ChatPage() {
       return;
     }
 
-    const response = await apiFetch<{ contacts: Contact[] }>('/api/users/contacts', { token });
-    setAvailableContacts(response.contacts || []);
+    const response = await apiFetch<{ dialogs: Contact[] }>('/api/dialogs', { token });
+    setAvailableContacts((response.dialogs || []).filter((contact) => contact.type === 'direct'));
   }, [token]);
 
   useEffect(() => {
@@ -1032,6 +1033,16 @@ export default function ChatPage() {
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
   const isActiveGroupChat = activeContact?.type === 'group';
   const isActiveGroupOwner = Boolean(isActiveGroupChat && user?.id && activeContact?.ownerId === user.id);
+  const filteredGroupAvailableContacts = useMemo(() => {
+    const query = groupAddSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return groupAvailableContacts;
+    }
+
+    return groupAvailableContacts.filter((contact) => [contact.displayName, contact.username, contact.email, contact.bio]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query)));
+  }, [groupAddSearchQuery, groupAvailableContacts]);
 
   const getForwardSenderName = (message: ChatMessage) => {
     if (message.senderId === user?.id) {
@@ -1132,6 +1143,7 @@ export default function ChatPage() {
     if (!showDialogProfile || !currentContact || currentContact.type !== 'group') {
       setGroupMembers([]);
       setGroupAvailableContacts([]);
+      setGroupAddSearchQuery('');
       return;
     }
 
@@ -2377,11 +2389,18 @@ export default function ChatPage() {
                   <>
                     <div className={styles.galleryHeaderRow}>
                       <strong>Добавить участников</strong>
-                      <span>{groupAvailableContacts.length}</span>
+                      <span>{filteredGroupAvailableContacts.length}</span>
                     </div>
-                    {groupAvailableContacts.length ? (
+                    <input
+                      type="text"
+                      value={groupAddSearchQuery}
+                      onChange={(event) => setGroupAddSearchQuery(event.target.value)}
+                      className={styles.dialogSearchInput}
+                      placeholder="Поиск по активным диалогам"
+                    />
+                    {filteredGroupAvailableContacts.length ? (
                       <div className={styles.groupMemberList}>
-                        {groupAvailableContacts.map((member) => (
+                        {filteredGroupAvailableContacts.map((member) => (
                           <div key={member.id} className={styles.groupMemberCard}>
                             <div className={styles.groupMemberIdentity}>
                               <UserAvatar
@@ -2402,7 +2421,7 @@ export default function ChatPage() {
                           </div>
                         ))}
                       </div>
-                    ) : <p className={styles.galleryEmpty}>Все доступные контакты уже в группе.</p>}
+                    ) : <p className={styles.galleryEmpty}>Нет подходящих активных диалогов для добавления.</p>}
                   </>
                 ) : null}
               </>
