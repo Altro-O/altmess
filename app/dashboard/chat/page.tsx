@@ -6,6 +6,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
+import GroupCall, { type GroupCallSession } from '../../../components/GroupCall';
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
@@ -263,6 +264,7 @@ export default function ChatPage() {
   ]);
   const [callSession, setCallSession] = useState<CallSession | null>(null);
   const [callOverlayVisible, setCallOverlayVisible] = useState(true);
+  const [groupCallSession, setGroupCallSession] = useState<GroupCallSession | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
@@ -682,6 +684,20 @@ export default function ChatPage() {
             initiator: false,
           });
           setCallOverlayVisible(true);
+        });
+
+        socket.on('group-call:incoming', ({ groupId, mode, title, fromUser }: { groupId: string; mode: 'audio' | 'video'; title: string; fromUser: Contact }) => {
+          setGroupCallSession({
+            groupId,
+            mode,
+            title,
+            initiator: false,
+            incomingFrom: fromUser,
+          });
+        });
+
+        socket.on('group-call:ended', ({ groupId }: { groupId: string }) => {
+          setGroupCallSession((current) => (current?.groupId === groupId ? null : current));
         });
 
         socket.on('call:ended', closeActiveCall);
@@ -1825,9 +1841,42 @@ export default function ChatPage() {
     });
   };
 
+  const startGroupCall = async (mode: 'audio' | 'video') => {
+    if (!socketRef.current || !activeContact || activeContact.type !== 'group') {
+      return;
+    }
+
+    try {
+      await requestCallMediaAccess(mode);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Нужен доступ к микрофону и камере для звонка');
+      return;
+    }
+
+    socketRef.current.emit('group-call:start', { groupId: activeContact.id.slice('group:'.length), mode }, (response: { ok: boolean; error?: string; room?: { groupId: string; title: string; mode: 'audio' | 'video' } }) => {
+      if (!response.ok || !response.room) {
+        setPageError(response.error || 'Не удалось начать групповой звонок');
+        return;
+      }
+
+      setGroupCallSession({
+        groupId: response.room.groupId,
+        title: response.room.title,
+        mode: response.room.mode,
+        initiator: true,
+        incomingFrom: null,
+      });
+      setPageError('');
+    });
+  };
+
   const handleCloseCall = useCallback(() => {
     setCallSession(null);
     setCallOverlayVisible(true);
+  }, []);
+
+  const handleCloseGroupCall = useCallback(() => {
+    setGroupCallSession(null);
   }, []);
 
   const handleMinimizeCall = useCallback(() => {
@@ -1940,6 +1989,12 @@ export default function ChatPage() {
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
                   </button> : null}
                   {!isActiveGroupChat ? <button type="button" className={styles.headerVideoButton} onClick={() => startCall('video')} aria-label="Видеозвонок" title="Видеозвонок">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
+                  </button> : null}
+                  {isActiveGroupChat ? <button type="button" className={styles.headerIconButton} onClick={() => startGroupCall('audio')} aria-label="Групповой аудиозвонок" title="Групповой аудиозвонок">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
+                  </button> : null}
+                  {isActiveGroupChat ? <button type="button" className={styles.headerVideoButton} onClick={() => startGroupCall('video')} aria-label="Групповой видеозвонок" title="Групповой видеозвонок">
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
                   </button> : null}
                 </div>
@@ -2314,6 +2369,15 @@ export default function ChatPage() {
           onMinimize={handleMinimizeCall}
           onRestore={handleRestoreCall}
           onClose={handleCloseCall}
+        />
+      ) : null}
+      {groupCallSession && socketRef.current ? (
+        <GroupCall
+          socket={socketRef.current}
+          call={groupCallSession}
+          currentUserId={user.id}
+          iceServers={iceServers}
+          onClose={handleCloseGroupCall}
         />
       ) : null}
       {previewImage ? (

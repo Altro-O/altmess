@@ -531,6 +531,16 @@ app.prepare().then(async () => {
     sockets.forEach((socketId) => io.to(socketId).emit(event, payload));
   }
 
+  function emitToGroupMembers(group, event, payload, exceptUserId = null) {
+    group.memberIds.forEach((memberId) => {
+      if (exceptUserId && memberId === exceptUserId) {
+        return;
+      }
+
+      emitToUser(memberId, event, payload);
+    });
+  }
+
   function getUserSockets(userId) {
     return [...(activeUsers.get(userId) || [])]
       .map((socketId) => io.sockets.sockets.get(socketId))
@@ -1612,6 +1622,138 @@ app.prepare().then(async () => {
       });
     });
 
+    socket.on('group-call:start', ({ groupId, mode }, callback) => {
+      const db = readDb();
+      const group = db.groups.find((entry) => entry.id === String(groupId || ''));
+
+      if (!group || !isGroupMember(group, currentUser.id)) {
+        callback?.({ ok: false, error: 'Группа не найдена' });
+        return;
+      }
+
+      const room = groupCallStore.startRoom(group.id, mode === 'audio' ? 'audio' : 'video');
+      emitToGroupMembers(group, 'group-call:incoming', {
+        groupId: group.id,
+        mode: room.mode,
+        title: group.title,
+        fromUser: publicUser(currentUser),
+      }, currentUser.id);
+
+      callback?.({
+        ok: true,
+        room: {
+          groupId: group.id,
+          mode: room.mode,
+          title: group.title,
+        },
+      });
+    });
+
+    socket.on('group-call:join', ({ groupId }, callback) => {
+      const db = readDb();
+      const group = db.groups.find((entry) => entry.id === String(groupId || ''));
+
+      if (!group || !isGroupMember(group, currentUser.id)) {
+        callback?.({ ok: false, error: 'Группа не найдена' });
+        return;
+      }
+
+      const room = groupCallStore.getRoom(group.id);
+      if (!room) {
+        callback?.({ ok: false, error: 'Групповой звонок уже завершен' });
+        return;
+      }
+
+      const existingParticipants = groupCallStore
+        .listParticipants(group.id)
+        .filter((participant) => participant.userId !== currentUser.id)
+        .map((participant) => {
+          const member = db.users.find((user) => user.id === participant.userId);
+          return member ? publicUser(member) : null;
+        })
+        .filter(Boolean);
+
+      groupCallStore.upsertParticipant(group.id, {
+        userId: currentUser.id,
+        socketId: socket.id,
+      });
+
+      emitToGroupMembers(group, 'group-call:user-joined', {
+        groupId: group.id,
+        user: publicUser(currentUser),
+      }, currentUser.id);
+
+      callback?.({
+        ok: true,
+        room: {
+          groupId: group.id,
+          mode: room.mode,
+          title: group.title,
+          participants: existingParticipants,
+        },
+      });
+    });
+
+    socket.on('group-call:leave', ({ groupId }, callback) => {
+      const db = readDb();
+      const group = db.groups.find((entry) => entry.id === String(groupId || ''));
+      if (!group) {
+        callback?.({ ok: true });
+        return;
+      }
+
+      const room = groupCallStore.removeParticipant(group.id, currentUser.id);
+      emitToGroupMembers(group, 'group-call:user-left', {
+        groupId: group.id,
+        userId: currentUser.id,
+      }, currentUser.id);
+
+      if (!room) {
+        emitToGroupMembers(group, 'group-call:ended', { groupId: group.id });
+      }
+
+      callback?.({ ok: true });
+    });
+
+    socket.on('group-call:offer', ({ groupId, targetUserId, offer }) => {
+      const room = groupCallStore.getRoom(String(groupId || ''));
+      if (!room || !groupCallStore.hasParticipant(groupId, currentUser.id) || !groupCallStore.hasParticipant(groupId, targetUserId)) {
+        return;
+      }
+
+      emitToUser(String(targetUserId), 'group-call:offer', {
+        groupId: String(groupId),
+        fromUserId: currentUser.id,
+        offer,
+      });
+    });
+
+    socket.on('group-call:answer', ({ groupId, targetUserId, answer }) => {
+      const room = groupCallStore.getRoom(String(groupId || ''));
+      if (!room || !groupCallStore.hasParticipant(groupId, currentUser.id) || !groupCallStore.hasParticipant(groupId, targetUserId)) {
+        return;
+      }
+
+      emitToUser(String(targetUserId), 'group-call:answer', {
+        groupId: String(groupId),
+        fromUserId: currentUser.id,
+        answer,
+      });
+    });
+
+    socket.on('group-call:ice-candidate', ({ groupId, targetUserId, candidate }) => {
+      const room = groupCallStore.getRoom(String(groupId || ''));
+      if (!room || !groupCallStore.hasParticipant(groupId, currentUser.id) || !groupCallStore.hasParticipant(groupId, targetUserId)) {
+        return;
+      }
+
+      emitToUser(String(targetUserId), 'group-call:ice-candidate', {
+        groupId: String(groupId),
+        fromUserId: currentUser.id,
+        candidate,
+      });
+    });
+
     socket.on('webrtc:offer', ({ callId, offer }) => {
       const call = activeCalls.get(String(callId));
       if (!call) {
@@ -1647,6 +1789,21 @@ app.prepare().then(async () => {
     });
 
     socket.on('disconnect', () => {
+      const db = readDb();
+      db.groups
+        .filter((group) => groupCallStore.hasParticipant(group.id, currentUser.id))
+        .forEach((group) => {
+          const room = groupCallStore.removeParticipant(group.id, currentUser.id);
+          emitToGroupMembers(group, 'group-call:user-left', {
+            groupId: group.id,
+            userId: currentUser.id,
+          }, currentUser.id);
+
+          if (!room) {
+            emitToGroupMembers(group, 'group-call:ended', { groupId: group.id });
+          }
+        });
+
       removeUserSocket(currentUser.id, socket.id);
       [...activeCalls.values()]
         .filter((call) => ['ringing', 'active'].includes(call.status) && (call.callerId === currentUser.id || call.recipientId === currentUser.id))
