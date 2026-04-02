@@ -9,6 +9,18 @@ const fs = require('fs/promises');
 const path = require('path');
 const webpush = require('web-push');
 const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
+const {
+  ensureGroupsState,
+  isGroupContactId,
+  getGroupByContactId,
+  isGroupMember,
+  buildGroupContact,
+  buildGroupDialogs,
+  getGroupPage,
+  createGroupRecord,
+  normalizePinnedTargetIds,
+  toGroupContactId,
+} = require('./groups');
 
 const lifecycle = process.env.npm_lifecycle_event;
 const dev = process.env.NODE_ENV !== 'production' && lifecycle !== 'start';
@@ -38,7 +50,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 }
 
 function readDb() {
-  return getState();
+  return ensureGroupsState(getState());
 }
 
 async function writeDb(data) {
@@ -171,12 +183,7 @@ function getConversationPage(db, firstUserId, secondUserId, options = {}) {
 }
 
 function normalizePinnedChatIds(input, currentUserId, db) {
-  const validUserIds = new Set(db.users.map((user) => String(user.id)));
-  return Array.from(new Set(
-    (Array.isArray(input) ? input : [])
-      .map((value) => String(value || '').trim())
-      .filter((value) => value && value !== currentUserId && validUserIds.has(value)),
-  ));
+  return normalizePinnedTargetIds(input, currentUserId, db);
 }
 
 function sanitizeMessage(message) {
@@ -191,6 +198,14 @@ function sanitizeMessage(message) {
     attachment: null,
     reactions: [],
   };
+}
+
+function getMessagePeerId(message, currentUserId) {
+  if (message.groupId) {
+    return toGroupContactId(message.groupId);
+  }
+
+  return message.senderId === currentUserId ? message.recipientId : message.senderId;
 }
 
 function buildPublicUploadUrl(relativePath) {
@@ -371,6 +386,7 @@ function buildReplyPreview(message, quoteText = '') {
   return {
     id: message.id,
     senderId: message.senderId,
+    senderName: message.senderName || '',
     content: message.kind === 'voice' ? 'Голосовое сообщение' : message.kind === 'file' ? 'Файл' : sanitizeMessage(message).content,
     quote,
     kind: message.kind || 'text',
@@ -688,6 +704,7 @@ app.prepare().then(async () => {
 
         return {
           ...publicUser(user),
+          type: 'direct',
           online: isUserOnline(user.id),
           lastMessage: lastMessage ? sanitizeMessage(lastMessage) : null,
           unreadCount,
@@ -701,7 +718,15 @@ app.prepare().then(async () => {
   }
 
   function buildDialogs(currentUserId) {
-    return buildContactList(currentUserId).filter((contact) => contact.lastMessage || contact.unreadCount > 0);
+    const directDialogs = buildContactList(currentUserId).filter((contact) => contact.lastMessage || contact.unreadCount > 0);
+    const groupDialogs = buildGroupDialogs(readDb(), currentUserId, sanitizeMessage);
+
+    return [...directDialogs, ...groupDialogs]
+      .sort((first, second) => {
+        const firstTime = first.lastMessage?.createdAt || first.createdAt || '';
+        const secondTime = second.lastMessage?.createdAt || second.createdAt || '';
+        return secondTime.localeCompare(firstTime);
+      });
   }
 
   function emitMessageStatus(message) {
@@ -919,6 +944,32 @@ app.prepare().then(async () => {
     res.json({ dialogs: buildDialogs(req.user.id) });
   });
 
+  expressApp.post('/api/groups', authMiddleware, async (req, res) => {
+    const db = readDb();
+    const title = String(req.body?.title || '').trim();
+    const memberIds = Array.isArray(req.body?.memberIds) ? req.body.memberIds.map(String) : [];
+
+    if (title.length < 2) {
+      res.status(400).json({ error: 'Название группы слишком короткое' });
+      return;
+    }
+
+    const validUserIds = new Set(db.users.map((user) => user.id));
+    const nextMemberIds = memberIds.filter((memberId) => validUserIds.has(memberId) && memberId !== req.user.id);
+    if (nextMemberIds.length === 0) {
+      res.status(400).json({ error: 'Выберите хотя бы одного участника' });
+      return;
+    }
+
+    const group = createGroupRecord({ ownerId: req.user.id, title, memberIds: nextMemberIds });
+    db.groups.push(group);
+    await writeDb(db);
+    group.memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'group:new', { group: buildGroupContact(db, group, memberId, sanitizeMessage) });
+    });
+    res.status(201).json({ group: buildGroupContact(db, group, req.user.id, sanitizeMessage) });
+  });
+
   expressApp.get('/api/preferences', authMiddleware, (req, res) => {
     const db = readDb();
     const user = db.users.find((entry) => entry.id === req.user.id);
@@ -949,6 +1000,20 @@ app.prepare().then(async () => {
     }
 
     const db = readDb();
+    if (isGroupContactId(contactId)) {
+      const group = getGroupByContactId(db, contactId);
+      if (!group || !isGroupMember(group, req.user.id)) {
+        res.status(404).json({ error: 'Группа не найдена' });
+        return;
+      }
+
+      res.json(getGroupPage(db, group, {
+        beforeMessageId: req.query.beforeMessageId,
+        limit: req.query.limit,
+      }, sanitizeMessage));
+      return;
+    }
+
     res.json(getConversationPage(db, req.user.id, contactId, {
       beforeMessageId: req.query.beforeMessageId,
       limit: req.query.limit,
@@ -1099,6 +1164,7 @@ app.prepare().then(async () => {
     socket.on('message:send', async (payload, callback) => {
       const content = String(payload?.content || '').trim();
       const recipientId = String(payload?.recipientId || '');
+      const groupContactId = isGroupContactId(recipientId) ? recipientId : '';
       const kind = payload?.kind === 'voice' ? 'voice' : payload?.kind === 'file' ? 'file' : 'text';
       const voice = payload?.voice && typeof payload.voice.audioUrl === 'string'
         ? {
@@ -1122,11 +1188,28 @@ app.prepare().then(async () => {
         : null;
       const replyToMessageId = payload?.replyToMessageId ? String(payload.replyToMessageId) : null;
       const replyQuote = typeof payload?.replyQuote === 'string' ? payload.replyQuote.trim().slice(0, 280) : '';
+      const forwardedFrom = payload?.forwardedFrom && typeof payload.forwardedFrom.senderId === 'string' && typeof payload.forwardedFrom.senderName === 'string'
+        ? {
+            senderId: String(payload.forwardedFrom.senderId),
+            senderName: String(payload.forwardedFrom.senderName).trim().slice(0, 80),
+          }
+        : null;
       const db = readDb();
+      const targetGroup = groupContactId ? getGroupByContactId(db, groupContactId) : null;
       const recipient = db.users.find((user) => user.id === recipientId);
       const replyToMessage = replyToMessageId ? db.messages.find((entry) => entry.id === replyToMessageId) : null;
 
-      if ((!content && kind === 'text') || (kind === 'voice' && !voice?.audioUrl) || (kind === 'file' && !attachment?.fileUrl) || !recipient) {
+      if ((!content && kind === 'text') || (kind === 'voice' && !voice?.audioUrl) || (kind === 'file' && !attachment?.fileUrl)) {
+        callback?.({ ok: false, error: 'Получатель не найден или сообщение пустое' });
+        return;
+      }
+
+      if (groupContactId && (!targetGroup || !isGroupMember(targetGroup, currentUser.id))) {
+        callback?.({ ok: false, error: 'Группа не найдена' });
+        return;
+      }
+
+      if (!groupContactId && !recipient) {
         callback?.({ ok: false, error: 'Получатель не найден или сообщение пустое' });
         return;
       }
@@ -1135,8 +1218,11 @@ app.prepare().then(async () => {
       const message = {
         id: randomUUID(),
         senderId: currentUser.id,
-        recipientId,
+        senderName: currentUser.displayName || currentUser.username,
+        recipientId: groupContactId || recipientId,
+        groupId: targetGroup?.id || null,
         content: kind === 'voice' ? 'Голосовое сообщение' : kind === 'file' ? attachment.fileName : content,
+        forwardedFrom,
         kind,
         voice,
         attachment,
@@ -1153,10 +1239,14 @@ app.prepare().then(async () => {
 
       db.messages.push(message);
       await writeDb(db);
-      emitToUser(recipientId, 'message:new', message);
-      emitToUser(currentUser.id, 'message:new', message);
+      if (targetGroup) {
+        targetGroup.memberIds.forEach((memberId) => emitToUser(memberId, 'message:new', message));
+      } else {
+        emitToUser(recipientId, 'message:new', message);
+        emitToUser(currentUser.id, 'message:new', message);
+      }
 
-      if (!hasVisibleSocket(recipientId)) {
+      if (!targetGroup && !hasVisibleSocket(recipientId)) {
         await sendPushToUser(recipientId, {
           title: currentUser.displayName || currentUser.username,
           body: content.length > 120 ? `${content.slice(0, 117)}...` : content,
@@ -1198,8 +1288,13 @@ app.prepare().then(async () => {
       writeDb(db);
 
       const payload = sanitizeMessage(message);
-      emitToUser(message.senderId, 'message:update', payload);
-      emitToUser(message.recipientId, 'message:update', payload);
+      if (message.groupId) {
+        const group = db.groups.find((entry) => entry.id === message.groupId);
+        group?.memberIds.forEach((memberId) => emitToUser(memberId, 'message:update', payload));
+      } else {
+        emitToUser(message.senderId, 'message:update', payload);
+        emitToUser(message.recipientId, 'message:update', payload);
+      }
       callback?.({ ok: true, message: payload });
     });
 
@@ -1208,7 +1303,11 @@ app.prepare().then(async () => {
       const message = db.messages.find((entry) => entry.id === String(messageId));
       const nextEmoji = String(emoji || '').trim();
 
-      if (!message || !nextEmoji || message.deletedAt) {
+      const canReactToGroup = message?.groupId
+        ? isGroupMember(db.groups.find((group) => group.id === message.groupId), currentUser.id)
+        : false;
+
+      if (!message || !nextEmoji || message.deletedAt || (!canReactToGroup && message.senderId !== currentUser.id && message.recipientId !== currentUser.id)) {
         callback?.({ ok: false, error: 'Не удалось обновить реакцию' });
         return;
       }
@@ -1228,8 +1327,13 @@ app.prepare().then(async () => {
       writeDb(db);
 
       const payload = sanitizeMessage(message);
-      emitToUser(message.senderId, 'message:update', payload);
-      emitToUser(message.recipientId, 'message:update', payload);
+      if (message.groupId) {
+        const group = db.groups.find((entry) => entry.id === message.groupId);
+        group?.memberIds.forEach((memberId) => emitToUser(memberId, 'message:update', payload));
+      } else {
+        emitToUser(message.senderId, 'message:update', payload);
+        emitToUser(message.recipientId, 'message:update', payload);
+      }
       callback?.({ ok: true, message: payload });
     });
 
@@ -1248,8 +1352,13 @@ app.prepare().then(async () => {
       await writeDb(db);
 
       const payload = sanitizeMessage(message);
-      emitToUser(message.senderId, 'message:update', payload);
-      emitToUser(message.recipientId, 'message:update', payload);
+      if (message.groupId) {
+        const group = db.groups.find((entry) => entry.id === message.groupId);
+        group?.memberIds.forEach((memberId) => emitToUser(memberId, 'message:update', payload));
+      } else {
+        emitToUser(message.senderId, 'message:update', payload);
+        emitToUser(message.recipientId, 'message:update', payload);
+      }
       callback?.({ ok: true, message: payload });
     });
 
@@ -1262,7 +1371,12 @@ app.prepare().then(async () => {
         return;
       }
 
-      if (message.senderId !== currentUser.id && message.recipientId !== currentUser.id) {
+      const canPinDirect = message.senderId === currentUser.id || message.recipientId === currentUser.id;
+      const canPinGroup = message.groupId
+        ? isGroupMember(db.groups.find((group) => group.id === message.groupId), currentUser.id)
+        : false;
+
+      if (!canPinDirect && !canPinGroup) {
         callback?.({ ok: false, error: 'Нет доступа к сообщению' });
         return;
       }
@@ -1272,8 +1386,13 @@ app.prepare().then(async () => {
       await writeDb(db);
 
       const payload = sanitizeMessage(message);
-      emitToUser(message.senderId, 'message:update', payload);
-      emitToUser(message.recipientId, 'message:update', payload);
+      if (message.groupId) {
+        const group = db.groups.find((entry) => entry.id === message.groupId);
+        group?.memberIds.forEach((memberId) => emitToUser(memberId, 'message:update', payload));
+      } else {
+        emitToUser(message.senderId, 'message:update', payload);
+        emitToUser(message.recipientId, 'message:update', payload);
+      }
       callback?.({ ok: true, message: payload });
     });
 

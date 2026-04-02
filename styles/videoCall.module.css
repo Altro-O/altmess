@@ -46,7 +46,20 @@
   color: white;
   font-size: 28px;
   font-weight: 800;
+  overflow: hidden;
 }
+
+.incomingAvatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.incomingAvatar_ocean { background: linear-gradient(135deg, #1f6fff, #12b4d6); }
+.incomingAvatar_mint { background: linear-gradient(135deg, #0ea472, #30cba5); }
+.incomingAvatar_sunset { background: linear-gradient(135deg, #f97316, #fb7185); }
+.incomingAvatar_berry { background: linear-gradient(135deg, #7c3aed, #ec4899); }
+.incomingAvatar_slate { background: linear-gradient(135deg, #334155, #64748b); }
 
 .incomingTitle {
   margin: 0;

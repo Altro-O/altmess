@@ -6,6 +6,7 @@ import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
 import VideoCall, { type CallSession } from '../../../components/VideoCall';
+import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import { apiFetch, type ChatMessage, type Contact, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
 
@@ -19,6 +20,14 @@ const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
 const EMOJI_USAGE_KEY = 'altmess_emoji_usage';
 const MESSAGES_PAGE_SIZE = 40;
+
+function isGroupContact(contactId?: string | null) {
+  return String(contactId || '').startsWith('group:');
+}
+
+function getMessageTargetId(message: ChatMessage, currentUserId?: string | null) {
+  return message.groupId ? `group:${message.groupId}` : (message.senderId === currentUserId ? message.recipientId : message.senderId);
+}
 
 function upsertMessage(messages: ChatMessage[], nextMessage: ChatMessage) {
   const existing = messages.find((message) => message.id === nextMessage.id);
@@ -80,6 +89,10 @@ function getOwnStatusText(message: ChatMessage) {
 function getPresenceText(contact: Contact | null) {
   if (!contact) {
     return '';
+  }
+
+  if (contact.type === 'group') {
+    return `${contact.memberIds?.length || 0} участников`;
   }
 
   if (contact.online) {
@@ -205,11 +218,20 @@ function sortPinnedMessages(items: ChatMessage[]) {
   return [...items].sort((first, second) => String(second.pinnedAt || '').localeCompare(String(first.pinnedAt || '')));
 }
 
+function getMessageAuthorLabel(message: ChatMessage, currentUserId: string) {
+  if (message.senderId === currentUserId) {
+    return 'Вы';
+  }
+
+  return message.senderName || 'Участник';
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading, token, user } = useAuth();
   const [sidebarItems, setSidebarItems] = useState<Contact[]>([]);
+  const [availableContacts, setAvailableContacts] = useState<Contact[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pinnedMessages, setPinnedMessages] = useState<ChatMessage[]>([]);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
@@ -247,6 +269,8 @@ export default function ChatPage() {
   const [uploadProgress, setUploadProgress] = useState<Array<{ name: string; progress: number }>>([]);
   const [previewImage, setPreviewImage] = useState<{ src: string; name: string } | null>(null);
   const [showDialogProfile, setShowDialogProfile] = useState(false);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -421,6 +445,15 @@ export default function ChatPage() {
     });
   }, [pinnedChatIds, requestedContactId, searchQuery, token]);
 
+  const loadAvailableContacts = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    const response = await apiFetch<{ contacts: Contact[] }>('/api/contacts', { token });
+    setAvailableContacts(response.contacts || []);
+  }, [token]);
+
   useEffect(() => {
     activeContactRef.current = activeContactId;
   }, [activeContactId]);
@@ -554,9 +587,9 @@ export default function ChatPage() {
 
         socket.on('message:new', (message: ChatMessage) => {
           const currentContactId = activeContactRef.current;
-          const partnerId = message.senderId === currentUserId ? message.recipientId : message.senderId;
+          const partnerId = getMessageTargetId(message, currentUserId);
 
-          if (message.recipientId === currentUserId) {
+          if (!message.groupId && message.recipientId === currentUserId) {
             socket.emit('message:delivered', { messageIds: [message.id] });
           }
 
@@ -570,7 +603,7 @@ export default function ChatPage() {
               {
                 ...existing,
                 lastMessage: message,
-                unreadCount: message.senderId !== currentUserId ? (existing.unreadCount || 0) + 1 : 0,
+                unreadCount: message.groupId ? (existing.unreadCount || 0) : (message.senderId !== currentUserId ? (existing.unreadCount || 0) + 1 : 0),
               },
               ...prev.filter((contact) => contact.id !== partnerId),
             ], pinnedChatIds);
@@ -611,11 +644,17 @@ export default function ChatPage() {
           setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact)), pinnedChatIds));
         });
 
+        socket.on('group:new', ({ group }: { group: Contact }) => {
+          setSidebarItems((prev) => sortContactsWithPins([group, ...prev.filter((contact) => contact.id !== group.id)], pinnedChatIds));
+        });
+
         socket.on('call:incoming', ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
           setCallSession({
             callId,
             peerUserId: fromUser.id,
             peerName: fromUser.displayName || fromUser.username,
+            peerAvatarUrl: fromUser.avatarUrl,
+            peerAvatarColor: fromUser.avatarColor,
             mode,
             initiator: false,
           });
@@ -651,6 +690,16 @@ export default function ChatPage() {
     });
   }, [loadSidebar]);
 
+  useEffect(() => {
+    if (!showCreateGroupModal) {
+      return;
+    }
+
+    loadAvailableContacts().catch((error) => {
+      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить контакты для группы');
+    });
+  }, [loadAvailableContacts, showCreateGroupModal]);
+
   const loadMessagesPage = useCallback(async (contactId: string, options?: { beforeMessageId?: string; appendOlder?: boolean }) => {
     if (!token) {
       return;
@@ -678,7 +727,7 @@ export default function ChatPage() {
     setHasMoreMessages(response.hasMore);
     setNextMessagesCursor(response.nextCursor);
 
-    if (!options?.appendOlder) {
+    if (!options?.appendOlder && !isGroupContact(contactId)) {
       const undeliveredIncomingIds = response.messages
         .filter((message) => message.senderId === contactId && message.recipientId === currentUserId && !message.deliveredAt)
         .map((message) => message.id);
@@ -764,7 +813,7 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!socketRef.current || !activeContactId || document.visibilityState !== 'visible') {
+    if (!socketRef.current || !activeContactId || document.visibilityState !== 'visible' || isGroupContact(activeContactId)) {
       return;
     }
 
@@ -959,6 +1008,15 @@ export default function ChatPage() {
   }, [visibleMessages]);
 
   const isActiveChatPinned = activeContactId ? pinnedChatIds.includes(activeContactId) : false;
+  const isActiveGroupChat = activeContact?.type === 'group';
+
+  const getForwardSenderName = (message: ChatMessage) => {
+    if (message.senderId === user?.id) {
+      return user?.displayName || user?.username || 'Вы';
+    }
+
+    return message.senderName || activeContact?.displayName || activeContact?.username || 'Неизвестный пользователь';
+  };
 
   const syncPinnedChats = useCallback(async (nextPins: string[]) => {
     if (!token) {
@@ -977,6 +1035,30 @@ export default function ChatPage() {
       setPageError(error instanceof Error ? error.message : 'Не удалось сохранить закрепы');
     }
   }, [token]);
+
+  const createGroupChat = useCallback(async (title: string, memberIds: string[]) => {
+    if (!token) {
+      return;
+    }
+
+    setIsCreatingGroup(true);
+    try {
+      const response = await apiFetch<{ group: Contact }>('/api/groups', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ title, memberIds }),
+      });
+
+      setSidebarItems((prev) => sortContactsWithPins([response.group, ...prev.filter((contact) => contact.id !== response.group.id)], pinnedChatIds));
+      setActiveContactId(response.group.id);
+      setShowCreateGroupModal(false);
+      setPageError('');
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось создать группу');
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  }, [pinnedChatIds, token]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!activeContactId || !nextMessagesCursor || isLoadingOlderMessages) {
@@ -1078,6 +1160,10 @@ export default function ChatPage() {
             kind: message.kind,
             voice: message.voice || undefined,
             attachment: message.attachment || undefined,
+            forwardedFrom: {
+              senderId: message.senderId,
+              senderName: getForwardSenderName(message),
+            },
           }, (response: { ok: boolean; error?: string }) => {
             if (!response?.ok) {
               reject(new Error(response?.error || 'Не удалось переслать сообщение'));
@@ -1640,6 +1726,8 @@ export default function ChatPage() {
         callId: response.callId,
         peerUserId: activeContact.id,
         peerName: activeContact.displayName || activeContact.username,
+        peerAvatarUrl: activeContact.avatarUrl,
+        peerAvatarColor: activeContact.avatarColor,
         mode,
         initiator: true,
       });
@@ -1670,6 +1758,7 @@ export default function ChatPage() {
         <aside className={`${styles.sidebar} ${showMobileChat ? styles.sidebarHiddenMobile : ''}`}>
           <div className={styles.sidebarHeader}>
             <h1 className={styles.sidebarTitle}>Диалоги</h1>
+            <button type="button" className={styles.secondaryButton} onClick={() => setShowCreateGroupModal(true)}>Новая группа</button>
           </div>
 
           <input
@@ -1742,7 +1831,7 @@ export default function ChatPage() {
                     imageClassName={styles.avatarImage}
                   />
                   <div>
-                    <h2 className={styles.panelTitle}>Чат с {activeContact.displayName || activeContact.username}</h2>
+                    <h2 className={styles.panelTitle}>{activeContact.type === 'group' ? activeContact.displayName || activeContact.username : `Чат с ${activeContact.displayName || activeContact.username}`}</h2>
                     <p className={styles.panelText}>{getPresenceText(activeContact)}</p>
                   </div>
                 </div>
@@ -1757,12 +1846,12 @@ export default function ChatPage() {
                   <button type="button" className={styles.headerIconButton} onClick={() => togglePinnedChat(activeContact.id)} aria-label={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'} title={isActiveChatPinned ? 'Открепить чат' : 'Закрепить чат'}>
                     {isActiveChatPinned ? '★' : '☆'}
                   </button>
-                  <button type="button" className={styles.headerIconButton} onClick={() => startCall('audio')} aria-label="Аудиозвонок" title="Аудиозвонок">
+                  {!isActiveGroupChat ? <button type="button" className={styles.headerIconButton} onClick={() => startCall('audio')} aria-label="Аудиозвонок" title="Аудиозвонок">
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M6.6 10.8c1.6 3.1 3.5 5 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.24c1.08.36 2.24.54 3.46.54a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.52 21 3 13.48 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.22.18 2.38.54 3.46a1 1 0 0 1-.24 1l-2.2 2.34Z" fill="currentColor"/></svg>
-                  </button>
-                  <button type="button" className={styles.headerVideoButton} onClick={() => startCall('video')} aria-label="Видеозвонок" title="Видеозвонок">
+                  </button> : null}
+                  {!isActiveGroupChat ? <button type="button" className={styles.headerVideoButton} onClick={() => startCall('video')} aria-label="Видеозвонок" title="Видеозвонок">
                     <svg viewBox="0 0 24 24" aria-hidden="true" className={styles.iconSvg}><path d="M14 7a2 2 0 0 1 2 2v1.38l3.55-2.37A1 1 0 0 1 21 8.84v6.32a1 1 0 0 1-1.45.83L16 13.62V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h9Z" fill="currentColor"/></svg>
-                  </button>
+                  </button> : null}
                 </div>
               </div>
 
@@ -1777,7 +1866,7 @@ export default function ChatPage() {
                             <button type="button" className={styles.smallMutedButton} onClick={() => jumpToMessage(message.id)}>
                               {getMessagePreview(message)}
                             </button>
-                            <button type="button" className={styles.smallButton} onClick={() => togglePinnedMessage(message)}>
+                            <button type="button" className={styles.smallMutedButton} onClick={() => togglePinnedMessage(message)}>
                               Открепить
                             </button>
                           </div>
@@ -1886,9 +1975,16 @@ export default function ChatPage() {
                             <>
                               {message.replyTo ? (
                                 <button type="button" className={styles.replyPreview} onClick={() => jumpToMessage(message.replyTo!.id)}>
-                                  <span className={styles.replyAuthor}>{message.replyTo.senderId === user.id ? 'Вы' : activeContact?.displayName || activeContact?.username}</span>
+                                  <span className={styles.replyAuthor}>{message.replyTo.senderId === user.id ? 'Вы' : (message.replyTo.senderName || activeContact?.displayName || activeContact?.username)}</span>
                                   <span className={styles.replyText}>{getReplySnippet(message.replyTo)}</span>
                                 </button>
+                              ) : null}
+                              {activeContact?.type === 'group' && !ownMessage ? <span className={styles.replyAuthor}>{getMessageAuthorLabel(message, user.id)}</span> : null}
+                              {message.forwardedFrom ? (
+                                <div className={styles.forwardedPreview}>
+                                  <span className={styles.forwardedLabel}>Переслано от</span>
+                                  <span className={styles.replyAuthor}>{message.forwardedFrom.senderName}</span>
+                                </div>
                               ) : null}
                               {message.deletedAt ? (
                                 <p className={`${styles.messageContent} ${styles.messageDeleted}`}>{message.content}</p>
@@ -2134,6 +2230,15 @@ export default function ChatPage() {
         <button type="button" className={styles.imageLightbox} onClick={() => setPreviewImage(null)}>
           <img src={previewImage.src} alt={previewImage.name} className={styles.imageLightboxMedia} />
         </button>
+      ) : null}
+
+      {showCreateGroupModal ? (
+        <CreateGroupModal
+          contacts={availableContacts}
+          isSubmitting={isCreatingGroup}
+          onClose={() => setShowCreateGroupModal(false)}
+          onSubmit={createGroupChat}
+        />
       ) : null}
 
       {showDialogProfile && activeContact ? (

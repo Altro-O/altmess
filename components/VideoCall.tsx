@@ -3,11 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import styles from '../styles/videoCall.module.css';
+import UserAvatar from './UserAvatar';
 
 export interface CallSession {
   callId: string;
   peerUserId: string;
   peerName: string;
+  peerAvatarUrl?: string;
+  peerAvatarColor?: string;
   mode: 'audio' | 'video';
   initiator: boolean;
 }
@@ -767,7 +770,13 @@ export default function VideoCall({ socket, call, iceServers, onClose }: VideoCa
       {phase === 'incoming' ? (
         <div className={styles.incoming}>
           <div className={styles.incomingCard}>
-            <div className={styles.incomingAvatar}>{call.peerName.slice(0, 1).toUpperCase()}</div>
+            <UserAvatar
+              avatarUrl={call.peerAvatarUrl}
+              alt={call.peerName}
+              fallback={call.peerName.slice(0, 1).toUpperCase()}
+              className={`${styles.incomingAvatar} ${styles[`incomingAvatar_${call.peerAvatarColor || 'ocean'}`]}`}
+              imageClassName={styles.incomingAvatarImage}
+            />
             <h3 className={styles.incomingTitle}>{call.mode === 'video' ? 'Видеозвонок' : 'Голосовой звонок'}</h3>
             <p className={styles.incomingText}>От {call.peerName}</p>
             <div className={styles.incomingActions}>

@@ -14,6 +14,9 @@ export interface AuthUser {
 }
 
 export interface Contact extends AuthUser {
+  type?: 'direct' | 'group';
+  memberIds?: string[];
+  ownerId?: string;
   online: boolean;
   lastMessage?: ChatMessage | null;
   unreadCount?: number;
@@ -22,12 +25,19 @@ export interface Contact extends AuthUser {
 export interface ChatMessage {
   id: string;
   senderId: string;
+  senderName?: string;
   recipientId: string;
+  groupId?: string | null;
   content: string;
+  forwardedFrom?: {
+    senderId: string;
+    senderName: string;
+  } | null;
   kind?: 'text' | 'call' | 'voice' | 'file';
   replyTo?: {
     id: string;
     senderId: string;
+    senderName?: string;
     content: string;
     quote?: string | null;
     kind?: 'text' | 'call' | 'voice' | 'file';
