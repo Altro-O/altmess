@@ -5,22 +5,12 @@ const STICKERS_DIR = path.join(process.cwd(), 'public', 'stickers');
 const ALLOWED_EXTENSIONS = new Set(['.webp', '.png', '.jpg', '.jpeg', '.gif', '.webm']);
 const DEFAULT_REMOTE_MANIFEST_URL = 'https://altro-o.github.io/altmess-stickers/manifest.json';
 const REMOTE_MANIFEST_URL = process.env.STICKERS_MANIFEST_URL?.trim() || DEFAULT_REMOTE_MANIFEST_URL;
-const REMOTE_MANIFEST_TTL_MS = 10 * 60 * 1000;
-const API_CACHE_CONTROL = 'public, max-age=300, stale-while-revalidate=600';
 
 type StickerPack = {
   key: string;
   title: string;
   items: string[];
 };
-
-type StickerPackCacheEntry = {
-  packs: StickerPack[];
-  expiresAt: number;
-};
-
-let remoteStickerPackCache: StickerPackCacheEntry | null = null;
-let remoteStickerPackRequest: Promise<StickerPack[]> | null = null;
 
 function getPackTitle(packKey: string) {
   return packKey.replace(/-raw$/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
@@ -139,63 +129,20 @@ async function getRemoteStickerPacks(): Promise<StickerPack[]> {
     return [];
   }
 
-  const now = Date.now();
-  if (remoteStickerPackCache && remoteStickerPackCache.expiresAt > now) {
-    return remoteStickerPackCache.packs;
+  const response = await fetch(REMOTE_MANIFEST_URL, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`Failed to load sticker manifest: ${response.status}`);
   }
 
-  if (remoteStickerPackRequest) {
-    return remoteStickerPackRequest;
-  }
-
-  remoteStickerPackRequest = (async () => {
-    try {
-      const response = await fetch(REMOTE_MANIFEST_URL, {
-        headers: {
-          'cache-control': 'no-cache',
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to load sticker manifest: ${response.status}`);
-      }
-
-      const packs = normalizeRemotePacks(await response.json());
-      remoteStickerPackCache = {
-        packs,
-        expiresAt: Date.now() + REMOTE_MANIFEST_TTL_MS,
-      };
-
-      return packs;
-    } catch (error) {
-      if (remoteStickerPackCache) {
-        return remoteStickerPackCache.packs;
-      }
-
-      throw error;
-    }
-  })();
-
-  try {
-    return await remoteStickerPackRequest;
-  } finally {
-    remoteStickerPackRequest = null;
-  }
+  return normalizeRemotePacks(await response.json());
 }
 
 export async function GET() {
   const remotePacks = await getRemoteStickerPacks().catch(() => []);
   if (remotePacks.length > 0) {
-    return Response.json({ packs: remotePacks, source: 'remote' }, {
-      headers: {
-        'Cache-Control': API_CACHE_CONTROL,
-      },
-    });
+    return Response.json({ packs: remotePacks, source: 'remote' });
   }
 
   const localPacks = await getLocalStickerPacks();
-  return Response.json({ packs: localPacks, source: 'local' }, {
-    headers: {
-      'Cache-Control': API_CACHE_CONTROL,
-    },
-  });
+  return Response.json({ packs: localPacks, source: 'local' });
 }

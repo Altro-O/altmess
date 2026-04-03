@@ -3,19 +3,6 @@
 import type { ChatMessage, Contact } from '../../utils/api';
 import styles from '../../styles/chat.module.css';
 
-function isIosWebKit() {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-
-  return /iPad|iPhone|iPod/.test(navigator.userAgent)
-    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-}
-
-function getStickerPreviewUrl(fileUrl: string) {
-  return fileUrl.replace(/\.webm((?:\?.*)?)$/i, '.webp$1');
-}
-
 interface ChatComposerProps {
   pageError: string;
   selectionMode: boolean;
@@ -116,7 +103,6 @@ export default function ChatComposer(props: ChatComposerProps) {
     quoteSelectionRef,
     onSendFile,
   } = props;
-  const prefersStaticVideoStickers = isIosWebKit();
 
   return (
     <div className={styles.composer}>
@@ -205,10 +191,10 @@ export default function ChatComposer(props: ChatComposerProps) {
                   <div className={styles.stickerGrid}>
                     {pack.items.map((fileUrl) => (
                       <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => onSendSticker(pack.key, fileUrl)}>
-                        {fileUrl.endsWith('.webm') && !prefersStaticVideoStickers ? (
+                        {fileUrl.endsWith('.webm') ? (
                           <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
                         ) : (
-                          <img src={fileUrl.endsWith('.webm') ? getStickerPreviewUrl(fileUrl) : fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                          <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
                         )}
                       </button>
                     ))}
@@ -234,10 +220,10 @@ export default function ChatComposer(props: ChatComposerProps) {
               <div className={styles.stickerGrid}>
                 {pack.items.map((fileUrl) => (
                   <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => onSendSticker(pack.key, fileUrl)}>
-                    {fileUrl.endsWith('.webm') && !prefersStaticVideoStickers ? (
+                    {fileUrl.endsWith('.webm') ? (
                       <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
                     ) : (
-                      <img src={fileUrl.endsWith('.webm') ? getStickerPreviewUrl(fileUrl) : fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
+                      <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
                     )}
                   </button>
                 ))}
