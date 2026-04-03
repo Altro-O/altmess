@@ -5,6 +5,27 @@ const { Pool } = require('pg');
 const DATA_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'altmess-db.json');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 
+function normalizeDatabaseUrl(connectionString) {
+  if (!connectionString) {
+    return '';
+  }
+
+  try {
+    const url = new URL(connectionString);
+    const sslMode = url.searchParams.get('sslmode');
+
+    if (sslMode === 'require' || sslMode === 'prefer' || sslMode === 'verify-ca') {
+      url.searchParams.set('sslmode', 'verify-full');
+    }
+
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
+
+const NORMALIZED_DATABASE_URL = normalizeDatabaseUrl(DATABASE_URL);
+
 let state = { users: [], groups: [], messages: [], calls: [], pushSubscriptions: [] };
 let pool = null;
 
@@ -40,14 +61,13 @@ function readFileState() {
 }
 
 async function initPostgres() {
-  if (!DATABASE_URL) {
+  if (!NORMALIZED_DATABASE_URL) {
     return null;
   }
 
   if (!pool) {
     pool = new Pool({
-      connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
+      connectionString: NORMALIZED_DATABASE_URL,
     });
   }
 
@@ -65,7 +85,7 @@ async function initPostgres() {
 async function loadState() {
   state = readFileState();
 
-  if (!DATABASE_URL) {
+  if (!NORMALIZED_DATABASE_URL) {
     return state;
   }
 
@@ -92,7 +112,7 @@ async function saveState(nextState) {
   ensureFile();
   fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf8');
 
-  if (!DATABASE_URL) {
+  if (!NORMALIZED_DATABASE_URL) {
     return;
   }
 
@@ -111,7 +131,7 @@ function getState() {
 }
 
 module.exports = {
-  DATABASE_URL,
+  DATABASE_URL: NORMALIZED_DATABASE_URL,
   getState,
   loadState,
   saveState,
