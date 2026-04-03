@@ -44,6 +44,8 @@ const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const MEDIA_UPSTREAM_URL = String(process.env.MEDIA_UPSTREAM_URL || '').trim().replace(/\/$/, '');
 const MEDIA_UPSTREAM_TOKEN = String(process.env.MEDIA_UPSTREAM_TOKEN || '').trim();
+const AUTH_COOKIE_NAME = 'altmess_auth';
+const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302'] },
   { urls: ['stun:stun1.l.google.com:19302'] },
@@ -106,7 +108,35 @@ function verifyToken(token) {
 
 function getBearerToken(req) {
   const authHeader = req.headers.authorization || '';
-  return authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+
+  const cookieHeader = req.headers.cookie || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|; )${AUTH_COOKIE_NAME}=([^;]+)`));
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: AUTH_COOKIE_MAX_AGE * 1000,
+    path: '/',
+  });
+}
+
+function clearAuthCookie(res) {
+  res.clearCookie(AUTH_COOKIE_NAME, { path: '/' });
 }
 
 function getIceServers() {
@@ -947,7 +977,9 @@ app.prepare().then(async () => {
     db.users.push(user);
     writeDb(db);
 
-    res.status(201).json({ token: createToken(user), user: publicUser(user), iceServers: getIceServers() });
+    const token = createToken(user);
+    setAuthCookie(res, token);
+    res.status(201).json({ token, user: publicUser(user), iceServers: getIceServers() });
   });
 
   expressApp.post('/api/auth/login', async (req, res) => {
@@ -964,7 +996,14 @@ app.prepare().then(async () => {
       return;
     }
 
-    res.json({ token: createToken(user), user: publicUser(user), iceServers: getIceServers() });
+    const token = createToken(user);
+    setAuthCookie(res, token);
+    res.json({ token, user: publicUser(user), iceServers: getIceServers() });
+  });
+
+  expressApp.post('/api/auth/logout', (req, res) => {
+    clearAuthCookie(res);
+    res.json({ ok: true });
   });
 
   expressApp.get('/api/auth/me', authMiddleware, (req, res) => {
@@ -1330,7 +1369,12 @@ app.prepare().then(async () => {
   expressApp.all('*', (req, res) => handle(req, res));
 
   io.use((socket, nextSocket) => {
-    const token = socket.handshake.auth?.token;
+    const token = socket.handshake.auth?.token
+      || (() => {
+          const cookieHeader = socket.handshake.headers?.cookie || '';
+          const match = cookieHeader.match(new RegExp(`(?:^|; )${AUTH_COOKIE_NAME}=([^;]+)`));
+          return match ? decodeURIComponent(match[1]) : null;
+        })();
     const payload = token ? verifyToken(token) : null;
     const db = readDb();
     const user = payload ? db.users.find((entry) => entry.id === payload.userId) : null;

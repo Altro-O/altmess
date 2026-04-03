@@ -321,9 +321,6 @@ export default function ProfilePage() {
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!token) {
-      return;
-    }
 
     setSaving(true);
     setStatus('');
@@ -331,7 +328,6 @@ export default function ProfilePage() {
     try {
       const response = await apiFetch<{ user: AuthUser }>('/api/profile', {
         method: 'PATCH',
-        token,
         body: JSON.stringify({ displayName, bio, avatarUrl, avatarColor, avatarStorageKey, avatarStorageKind }),
       });
       updateUser(response.user);

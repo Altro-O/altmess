@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiFetch, clearSession, getStoredToken, getStoredUser, storeSession, type AuthUser } from '../utils/api';
+import { apiFetch, clearUser, getStoredUser, storeUser, type AuthUser } from '../utils/api';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -34,26 +34,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const bootstrap = async () => {
-      const storedToken = getStoredToken();
       const storedUser = getStoredUser();
 
-      if (!storedToken) {
-        setIsLoading(false);
-        return;
-      }
-
-      if (storedUser) {
-        setToken(storedToken);
-        setUser(storedUser);
-      }
-
       try {
-        const response = await apiFetch<{ user: AuthUser }>('/api/auth/me', { token: storedToken });
-        setToken(storedToken);
+        const response = await apiFetch<{ user: AuthUser }>('/api/auth/me');
+        setToken(response.user.id);
         setUser(response.user);
-        storeSession(storedToken, response.user);
+        storeUser(response.user);
       } catch {
-        clearSession();
+        clearUser();
         setToken(null);
         setUser(null);
       } finally {
@@ -71,18 +60,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       user,
       login: (nextToken, nextUser) => {
-        storeSession(nextToken, nextUser);
+        storeUser(nextUser);
         setToken(nextToken);
         setUser(nextUser);
       },
       updateUser: (nextUser) => {
-        if (token) {
-          storeSession(token, nextUser);
-        }
+        storeUser(nextUser);
         setUser(nextUser);
       },
-      logout: () => {
-        clearSession();
+      logout: async () => {
+        try {
+          await apiFetch('/api/auth/logout', { method: 'POST' });
+        } catch {
+          // ignore logout errors
+        }
+        clearUser();
         setToken(null);
         setUser(null);
         router.push('/');

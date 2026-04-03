@@ -444,7 +444,7 @@ export default function ChatPage() {
     const endpoint = searchQuery.trim()
       ? `/api/users/search?q=${encodeURIComponent(searchQuery.trim())}`
       : '/api/dialogs';
-    const response = await apiFetch<{ dialogs?: Contact[]; users?: Contact[] }>(endpoint, { token });
+    const response = await apiFetch<{ dialogs?: Contact[]; users?: Contact[] }>(endpoint);
     const nextItems = response.dialogs || response.users || [];
     setSidebarItems(sortContactsWithPins(nextItems, pinnedChatIds));
     setActiveContactId((prev) => {
@@ -465,7 +465,7 @@ export default function ChatPage() {
       return;
     }
 
-    const response = await apiFetch<{ dialogs: Contact[] }>('/api/dialogs', { token });
+    const response = await apiFetch<{ dialogs: Contact[] }>('/api/dialogs');
     setAvailableContacts((response.dialogs || []).filter((contact) => contact.type === 'direct'));
   }, [token]);
 
@@ -559,7 +559,7 @@ export default function ChatPage() {
 
     const bootstrap = async () => {
       try {
-        const rtcResponse = await apiFetch<{ iceServers: RTCIceServer[] }>('/api/rtc/config', { token });
+        const rtcResponse = await apiFetch<{ iceServers: RTCIceServer[] }>('/api/rtc/config');
         if (!alive) {
           return;
         }
@@ -567,7 +567,7 @@ export default function ChatPage() {
         setIceServers(rtcResponse.iceServers);
 
         const socket = io({
-          auth: { token },
+          withCredentials: true,
           reconnection: true,
           reconnectionAttempts: Infinity,
           reconnectionDelay: 1000,
@@ -764,7 +764,7 @@ export default function ChatPage() {
       params.set('beforeMessageId', options.beforeMessageId);
     }
 
-    const response = await apiFetch<MessagesPage>(`/api/messages?${params.toString()}`, { token });
+    const response = await apiFetch<MessagesPage>(`/api/messages?${params.toString()}`);
 
     if (!options?.appendOlder && options?.requestId && options.requestId !== activeMessagesRequestRef.current) {
       return;
@@ -1115,7 +1115,7 @@ export default function ChatPage() {
     setIsLoadingGroupDetails(true);
 
     try {
-      const response = await apiFetch<GroupDetails>(`/api/groups/${groupId}`, { token });
+      const response = await apiFetch<GroupDetails>(`/api/groups/${groupId}`);
       setGroupMembers(response.members || []);
       setGroupAvailableContacts(response.availableContacts || []);
       setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === response.group.id ? { ...contact, ...response.group } : contact)), pinnedChatIds));

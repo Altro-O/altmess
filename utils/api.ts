@@ -94,42 +94,7 @@ type RequestOptions = RequestInit & {
   token?: string | null;
 };
 
-const TOKEN_KEY = 'altmess_token';
 const USER_KEY = 'altmess_user';
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-
-function persistSessionCookie(token: string) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-
-  document.cookie = `altmess_token=${encodeURIComponent(token)}; Max-Age=${COOKIE_MAX_AGE}; Path=/; SameSite=Lax`;
-}
-
-function clearSessionCookie() {
-  if (typeof document === 'undefined') {
-    return;
-  }
-
-  document.cookie = 'altmess_token=; Max-Age=0; Path=/; SameSite=Lax';
-}
-
-function getTokenFromCookie() {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-
-  const match = document.cookie.match(/(?:^|; )altmess_token=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-export function getStoredToken() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return localStorage.getItem(TOKEN_KEY) || getTokenFromCookie();
-}
 
 export function getStoredUser() {
   if (typeof window === 'undefined') {
@@ -148,24 +113,20 @@ export function getStoredUser() {
   }
 }
 
-export function storeSession(token: string, user: AuthUser) {
+export function storeUser(user: AuthUser) {
   if (typeof window === 'undefined') {
     return;
   }
 
-  localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
-  persistSessionCookie(token);
 }
 
-export function clearSession() {
+export function clearUser() {
   if (typeof window === 'undefined') {
     return;
   }
 
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  clearSessionCookie();
 }
 
 export async function apiFetch<T>(url: string, options: RequestOptions = {}): Promise<T> {
@@ -179,6 +140,7 @@ export async function apiFetch<T>(url: string, options: RequestOptions = {}): Pr
   const response = await fetch(url, {
     ...options,
     headers,
+    credentials: 'include',
   });
 
   const data = await response.json().catch(() => ({}));

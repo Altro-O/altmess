@@ -24,7 +24,7 @@ function urlBase64ToUint8Array(value: string) {
 }
 
 export default function NotificationManager() {
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<'default' | 'denied' | 'granted'>('default');
   const [isDismissed, setIsDismissed] = useState(false);
@@ -45,7 +45,7 @@ export default function NotificationManager() {
   }, [canUseNotifications]);
 
   useEffect(() => {
-    if (!isAuthenticated || !token || !canUseNotifications) {
+    if (!isAuthenticated || !canUseNotifications) {
       return;
     }
 
@@ -53,7 +53,7 @@ export default function NotificationManager() {
 
     const setup = async () => {
       try {
-        const config = await apiFetch<NotificationConfigResponse>('/api/notifications/config', { token });
+        const config = await apiFetch<NotificationConfigResponse>('/api/notifications/config');
         if (cancelled) {
           return;
         }
@@ -77,7 +77,6 @@ export default function NotificationManager() {
 
         await apiFetch('/api/notifications/subscribe', {
           method: 'POST',
-          token,
           body: JSON.stringify({ subscription: subscription.toJSON() }),
         });
       } catch (nextError) {
@@ -92,10 +91,10 @@ export default function NotificationManager() {
     return () => {
       cancelled = true;
     };
-  }, [canUseNotifications, isAuthenticated, token]);
+  }, [canUseNotifications, isAuthenticated]);
 
   const enableNotifications = async () => {
-    if (!token || !canUseNotifications) {
+    if (!canUseNotifications) {
       return;
     }
 
@@ -103,7 +102,7 @@ export default function NotificationManager() {
     setError('');
 
     try {
-      const config = await apiFetch<NotificationConfigResponse>('/api/notifications/config', { token });
+      const config = await apiFetch<NotificationConfigResponse>('/api/notifications/config');
       if (!config.supported || !config.vapidPublicKey) {
         throw new Error('Push-уведомления еще не настроены на сервере');
       }
@@ -124,7 +123,6 @@ export default function NotificationManager() {
 
       await apiFetch('/api/notifications/subscribe', {
         method: 'POST',
-        token,
         body: JSON.stringify({ subscription: subscription.toJSON() }),
       });
     } catch (nextError) {
