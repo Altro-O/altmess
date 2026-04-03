@@ -443,7 +443,7 @@ export default function MessageTimeline(props: MessageTimelineProps) {
                       ) : isStickerMessage && message.attachment ? (
                         <button type="button" className={styles.stickerCard} onClick={() => onPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
                           {isVideoStickerMessage ? (
-                            <video src={message.attachment.fileUrl} className={styles.stickerImage} autoPlay muted loop playsInline />
+                            <video src={message.attachment.fileUrl} className={styles.stickerImage} autoPlay muted loop playsInline preload="metadata" />
                           ) : (
                             <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
                           )}

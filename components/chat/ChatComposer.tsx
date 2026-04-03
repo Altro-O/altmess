@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import type { ChatMessage, Contact } from '../../utils/api';
 import styles from '../../styles/chat.module.css';
 
@@ -104,6 +105,57 @@ export default function ChatComposer(props: ChatComposerProps) {
     onSendFile,
   } = props;
 
+  const [activeStickerPackKey, setActiveStickerPackKey] = useState<string>('');
+
+  useEffect(() => {
+    if (!orderedStickerPacks.length) {
+      setActiveStickerPackKey('');
+      return;
+    }
+
+    if (!orderedStickerPacks.some((pack) => pack.key === activeStickerPackKey)) {
+      setActiveStickerPackKey(orderedStickerPacks[0].key);
+    }
+  }, [activeStickerPackKey, orderedStickerPacks]);
+
+  const activeStickerPack = useMemo(
+    () => orderedStickerPacks.find((pack) => pack.key === activeStickerPackKey) || orderedStickerPacks[0] || null,
+    [activeStickerPackKey, orderedStickerPacks],
+  );
+
+  const renderStickerPicker = (className?: string) => (
+    <div className={className ? `${styles.stickerPicker} ${className}` : styles.stickerPicker}>
+      <div className={styles.stickerPackTabs}>
+        {orderedStickerPacks.map((pack) => (
+          <button
+            key={pack.key}
+            type="button"
+            className={`${styles.stickerPackTab} ${activeStickerPack?.key === pack.key ? styles.stickerPackTabActive : ''}`}
+            onClick={() => setActiveStickerPackKey(pack.key)}
+          >
+            {pack.title}
+          </button>
+        ))}
+      </div>
+      {activeStickerPack ? (
+        <div className={styles.stickerPack}>
+          <strong className={styles.stickerPackTitle}>{activeStickerPack.title}</strong>
+          <div className={styles.stickerGrid}>
+            {activeStickerPack.items.map((fileUrl) => (
+              <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => onSendSticker(activeStickerPack.key, fileUrl)}>
+                {fileUrl.endsWith('.webm') ? (
+                  <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline preload="metadata" />
+                ) : (
+                  <img src={fileUrl} alt={activeStickerPack.title} className={styles.stickerOptionImage} loading="lazy" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className={styles.composer}>
       {pageError ? <div className={styles.inlineError}>{pageError}</div> : null}
@@ -184,24 +236,7 @@ export default function ChatComposer(props: ChatComposerProps) {
               ))}
             </div>
           ) : (
-            <div className={`${styles.stickerPicker} ${styles.mobilePickerBody}`}>
-              {orderedStickerPacks.map((pack) => (
-                <div key={pack.key} className={styles.stickerPack}>
-                  <strong className={styles.stickerPackTitle}>{pack.title}</strong>
-                  <div className={styles.stickerGrid}>
-                    {pack.items.map((fileUrl) => (
-                      <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => onSendSticker(pack.key, fileUrl)}>
-                        {fileUrl.endsWith('.webm') ? (
-                          <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
-                        ) : (
-                          <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            renderStickerPicker(styles.mobilePickerBody)
           )}
         </div>
       ) : null}
@@ -212,26 +247,7 @@ export default function ChatComposer(props: ChatComposerProps) {
           ))}
         </div>
       ) : null}
-      {!isMobileLayout && showStickerPicker ? (
-        <div className={styles.stickerPicker}>
-          {orderedStickerPacks.map((pack) => (
-            <div key={pack.key} className={styles.stickerPack}>
-              <strong className={styles.stickerPackTitle}>{pack.title}</strong>
-              <div className={styles.stickerGrid}>
-                {pack.items.map((fileUrl) => (
-                  <button key={fileUrl} type="button" className={styles.stickerOption} onClick={() => onSendSticker(pack.key, fileUrl)}>
-                    {fileUrl.endsWith('.webm') ? (
-                      <video src={fileUrl} className={styles.stickerOptionImage} autoPlay muted loop playsInline />
-                    ) : (
-                      <img src={fileUrl} alt={pack.title} className={styles.stickerOptionImage} loading="lazy" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {!isMobileLayout && showStickerPicker ? renderStickerPicker() : null}
       <form onSubmit={onSubmitMessage} className={styles.composerForm}>
         <div className={styles.composerInputWrap}>
           <textarea

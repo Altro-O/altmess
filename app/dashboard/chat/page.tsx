@@ -21,7 +21,7 @@ const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
 const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
 const MAX_IMAGE_DIMENSION = 1600;
-const MAX_FILE_BYTES = 32 * 1024 * 1024;
+const MAX_FILE_BYTES = 75 * 1024 * 1024;
 const PINNED_CHATS_KEY = 'altmess_pinned_chats';
 const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
@@ -1659,7 +1659,7 @@ export default function ChatPage() {
 
     const tooLargeFile = nextFiles.find((file) => file.size > MAX_FILE_BYTES);
     if (tooLargeFile) {
-      setPageError(`Файл ${tooLargeFile.name} слишком большой. Пока лимит 32 MB`);
+      setPageError(`Файл ${tooLargeFile.name} слишком большой. Пока лимит 75 MB`);
       return;
     }
 
@@ -1731,6 +1731,9 @@ export default function ChatPage() {
       return;
     }
 
+    setShowStickerPicker(false);
+    setShowEmojiPicker(false);
+
     const fileName = fileUrl.split('/').pop() || 'sticker.webp';
     const extension = fileName.split('.').pop()?.toLowerCase() || 'webp';
     const mimeType = extension === 'webm' ? 'video/webm' : 'image/webp';
@@ -1760,7 +1763,6 @@ export default function ChatPage() {
         bumpSidebarMessage(activeContact.id, response.message, 0);
         setStickerUsage((prev) => ({ ...prev, [fileUrl]: (prev[fileUrl] || 0) + 1 }));
         resetReplyState();
-        setShowStickerPicker(false);
       },
     );
   };
