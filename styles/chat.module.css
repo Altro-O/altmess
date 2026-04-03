@@ -997,6 +997,28 @@ video.stickerImage {
   padding-bottom: 2px;
 }
 
+.stickerPackSelectWrap {
+  display: grid;
+  gap: 6px;
+}
+
+.stickerPackSelectLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: #667085;
+}
+
+.stickerPackSelect {
+  width: 100%;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .stickerPackTab {
   flex: 0 0 auto;
   border: 0;

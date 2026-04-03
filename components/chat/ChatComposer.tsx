@@ -123,20 +123,35 @@ export default function ChatComposer(props: ChatComposerProps) {
     [activeStickerPackKey, orderedStickerPacks],
   );
 
-  const renderStickerPicker = (className?: string) => (
+  const renderStickerPicker = (className?: string, compact = false) => (
     <div className={className ? `${styles.stickerPicker} ${className}` : styles.stickerPicker}>
-      <div className={styles.stickerPackTabs}>
-        {orderedStickerPacks.map((pack) => (
-          <button
-            key={pack.key}
-            type="button"
-            className={`${styles.stickerPackTab} ${activeStickerPack?.key === pack.key ? styles.stickerPackTabActive : ''}`}
-            onClick={() => setActiveStickerPackKey(pack.key)}
+      {compact ? (
+        <label className={styles.stickerPackSelectWrap}>
+          <span className={styles.stickerPackSelectLabel}>Пак</span>
+          <select
+            className={styles.stickerPackSelect}
+            value={activeStickerPack?.key || ''}
+            onChange={(event) => setActiveStickerPackKey(event.target.value)}
           >
-            {pack.title}
-          </button>
-        ))}
-      </div>
+            {orderedStickerPacks.map((pack) => (
+              <option key={pack.key} value={pack.key}>{pack.title}</option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <div className={styles.stickerPackTabs}>
+          {orderedStickerPacks.map((pack) => (
+            <button
+              key={pack.key}
+              type="button"
+              className={`${styles.stickerPackTab} ${activeStickerPack?.key === pack.key ? styles.stickerPackTabActive : ''}`}
+              onClick={() => setActiveStickerPackKey(pack.key)}
+            >
+              {pack.title}
+            </button>
+          ))}
+        </div>
+      )}
       {activeStickerPack ? (
         <div className={styles.stickerPack}>
           <strong className={styles.stickerPackTitle}>{activeStickerPack.title}</strong>
@@ -236,7 +251,7 @@ export default function ChatComposer(props: ChatComposerProps) {
               ))}
             </div>
           ) : (
-            renderStickerPicker(styles.mobilePickerBody)
+            renderStickerPicker(styles.mobilePickerBody, true)
           )}
         </div>
       ) : null}
