@@ -602,10 +602,13 @@
 }
 
 .stickerCard {
+  display: block;
   width: min(180px, 100%);
   padding: 0;
   border: 0;
   background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .stickerImage {
@@ -613,7 +616,12 @@
   width: 100%;
   height: auto;
   object-fit: contain;
+  background: transparent;
   filter: drop-shadow(0 14px 22px rgba(15, 23, 42, 0.12));
+}
+
+video.stickerImage {
+  background-color: transparent;
 }
 
 .imagePreview {
