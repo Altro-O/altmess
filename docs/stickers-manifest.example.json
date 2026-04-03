@@ -1,0 +1,22 @@
+{
+  "baseUrl": "https://cdn.jsdelivr.net/gh/your-org/altmess-stickers@main/",
+  "packs": [
+    {
+      "key": "catz",
+      "title": "Catz",
+      "items": [
+        "catz/001.webp",
+        "catz/002.webp",
+        "catz/003.webm"
+      ]
+    },
+    {
+      "key": "retro",
+      "title": "Retro",
+      "items": [
+        "retro/001.webp",
+        "retro/002.webp"
+      ]
+    }
+  ]
+}
