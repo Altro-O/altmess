@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { Contact } from '../utils/api';
 import styles from '../styles/videoCall.module.css';
@@ -31,7 +31,7 @@ function getFallbackLabel(user: Pick<Contact, 'displayName' | 'username'>) {
   return (user.displayName || user.username || '?').slice(0, 2).toUpperCase();
 }
 
-function ParticipantTile({
+const ParticipantTile = memo(function ParticipantTile({
   participant,
   isFeatured,
   isPinned,
@@ -44,6 +44,47 @@ function ParticipantTile({
   isActiveSpeaker: boolean;
   onPin: () => void;
 }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node) {
+      return;
+    }
+
+    if (!participant.stream) {
+      node.srcObject = null;
+      return;
+    }
+
+    if (node.srcObject !== participant.stream) {
+      node.srcObject = participant.stream;
+    }
+
+    node.muted = participant.isSelf;
+    void node.play().catch(() => null);
+  }, [participant.isSelf, participant.stream]);
+
+  useEffect(() => {
+    const node = audioRef.current;
+    if (!node) {
+      return;
+    }
+
+    if (!participant.stream) {
+      node.srcObject = null;
+      return;
+    }
+
+    if (node.srcObject !== participant.stream) {
+      node.srcObject = participant.stream;
+    }
+
+    node.muted = false;
+    void node.play().catch(() => null);
+  }, [participant.stream]);
+
   const badges = [
     !participant.isSelf && participant.connectionState !== 'connected' ? 'Переподключается' : null,
     !participant.audioEnabled ? 'Без звука' : null,
@@ -54,14 +95,8 @@ function ParticipantTile({
     <div className={`${styles.groupTile} ${isFeatured ? styles.groupTileFeatured : ''} ${isActiveSpeaker ? styles.groupTileSpeaking : ''}`}>
       {participant.hasVideo && participant.stream ? (
         <video
+          ref={videoRef}
           className={`${styles.groupVideo} ${isFeatured ? styles.groupVideoFeatured : ''}`}
-          ref={(node) => {
-            if (node && participant.stream) {
-              node.srcObject = participant.stream;
-              node.muted = participant.isSelf;
-              void node.play().catch(() => null);
-            }
-          }}
           playsInline
           autoPlay
           muted={participant.isSelf}
@@ -80,13 +115,7 @@ function ParticipantTile({
       </button>
       {!participant.isSelf && participant.stream ? (
         <audio
-          ref={(node) => {
-            if (node && participant.stream) {
-              node.srcObject = participant.stream;
-              node.muted = false;
-              void node.play().catch(() => null);
-            }
-          }}
+          ref={audioRef}
           autoPlay
           playsInline
           className={styles.remoteAudio}
@@ -94,7 +123,7 @@ function ParticipantTile({
       ) : null}
     </div>
   );
-}
+});
 
 export default function GroupCall({ socket, call, currentUserId, iceServers, onClose }: GroupCallProps) {
   const [phase, setPhase] = useState(call.initiator ? 'connecting' : 'incoming');
