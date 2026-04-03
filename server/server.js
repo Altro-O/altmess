@@ -44,6 +44,19 @@ const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const MEDIA_UPSTREAM_URL = String(process.env.MEDIA_UPSTREAM_URL || '').trim().replace(/\/$/, '');
 const MEDIA_UPSTREAM_TOKEN = String(process.env.MEDIA_UPSTREAM_TOKEN || '').trim();
+const ALLOWED_SOCKET_ORIGINS = new Set(
+  [
+    process.env.ALLOWED_ORIGINS,
+    process.env.APP_ORIGIN,
+    process.env.PUBLIC_APP_URL,
+    process.env.RENDER_EXTERNAL_URL,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ]
+    .flatMap((value) => String(value || '').split(','))
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+);
 const AUTH_COOKIE_NAME = 'altmess_auth';
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const DEFAULT_ICE_SERVERS = [
@@ -74,6 +87,14 @@ async function ensureMediaUploadDir() {
 
 function hasMediaUpstream() {
   return Boolean(MEDIA_UPSTREAM_URL && MEDIA_UPSTREAM_TOKEN);
+}
+
+function isAllowedSocketOrigin(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  return ALLOWED_SOCKET_ORIGINS.has(String(origin).trim().replace(/\/$/, ''));
 }
 
 function publicUser(user) {
@@ -558,7 +579,17 @@ app.prepare().then(async () => {
   const expressApp = express();
   const server = http.createServer(expressApp);
   const io = new Server(server, {
-    cors: { origin: true, credentials: true },
+    cors: {
+      origin(origin, callback) {
+        if (isAllowedSocketOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error('Socket.IO origin is not allowed'));
+      },
+      credentials: true,
+    },
   });
   const activeUsers = new Map();
   const activeCalls = new Map();
@@ -846,7 +877,7 @@ app.prepare().then(async () => {
     emitToUser(message.recipientId, 'message:status', payload);
   }
 
-  function markMessagesDelivered(currentUserId, messageIds = []) {
+  async function markMessagesDelivered(currentUserId, messageIds = []) {
     const db = readDb();
     const now = new Date().toISOString();
     const changedIds = [];
@@ -862,13 +893,13 @@ app.prepare().then(async () => {
     });
 
     if (changedIds.length > 0) {
-      writeDb(db);
+      await writeDb(db);
     }
 
     return changedIds;
   }
 
-  function markConversationRead(currentUserId, contactId, messageIds = []) {
+  async function markConversationRead(currentUserId, contactId, messageIds = []) {
     const db = readDb();
     const now = new Date().toISOString();
     const changedIds = [];
@@ -890,7 +921,7 @@ app.prepare().then(async () => {
     });
 
     if (changedIds.length > 0) {
-      writeDb(db);
+      await writeDb(db);
     }
 
     return changedIds;
@@ -975,7 +1006,7 @@ app.prepare().then(async () => {
     };
 
     db.users.push(user);
-    writeDb(db);
+    await writeDb(db);
 
     const token = createToken(user);
     setAuthCookie(res, token);
@@ -1294,7 +1325,7 @@ app.prepare().then(async () => {
     }
   });
 
-  expressApp.post('/api/messages/read', authMiddleware, (req, res) => {
+  expressApp.post('/api/messages/read', authMiddleware, async (req, res) => {
     const contactId = String(req.body?.contactId || '');
     const messageIds = Array.isArray(req.body?.messageIds) ? req.body.messageIds : [];
     if (!contactId) {
@@ -1302,7 +1333,7 @@ app.prepare().then(async () => {
       return;
     }
 
-    res.json({ ok: true, messageIds: markConversationRead(req.user.id, contactId, messageIds) });
+    res.json({ ok: true, messageIds: await markConversationRead(req.user.id, contactId, messageIds) });
   });
 
   expressApp.get('/api/rtc/config', authMiddleware, (req, res) => {
@@ -1503,11 +1534,11 @@ app.prepare().then(async () => {
     });
 
     socket.on('message:delivered', async ({ messageIds }, callback) => {
-      const deliveredIds = markMessagesDelivered(currentUser.id, messageIds);
+      const deliveredIds = await markMessagesDelivered(currentUser.id, messageIds);
       callback?.({ ok: true, messageIds: deliveredIds });
     });
 
-    socket.on('message:edit', ({ messageId, content }, callback) => {
+    socket.on('message:edit', async ({ messageId, content }, callback) => {
       const db = readDb();
       const message = db.messages.find((entry) => entry.id === String(messageId));
       const nextContent = String(content || '').trim();
@@ -1524,7 +1555,7 @@ app.prepare().then(async () => {
 
       message.content = nextContent;
       message.updatedAt = new Date().toISOString();
-      writeDb(db);
+      await writeDb(db);
 
       const payload = sanitizeMessage(message);
       if (message.groupId) {
@@ -1537,7 +1568,7 @@ app.prepare().then(async () => {
       callback?.({ ok: true, message: payload });
     });
 
-    socket.on('message:react', ({ messageId, emoji }, callback) => {
+    socket.on('message:react', async ({ messageId, emoji }, callback) => {
       const db = readDb();
       const message = db.messages.find((entry) => entry.id === String(messageId));
       const nextEmoji = String(emoji || '').trim();
@@ -1563,7 +1594,7 @@ app.prepare().then(async () => {
       }
 
       message.reactions = reactions.filter((entry) => entry.userIds.length > 0);
-      writeDb(db);
+      await writeDb(db);
 
       const payload = sanitizeMessage(message);
       if (message.groupId) {
@@ -1635,13 +1666,13 @@ app.prepare().then(async () => {
       callback?.({ ok: true, message: payload });
     });
 
-    socket.on('conversation:read', ({ contactId, messageIds }, callback) => {
+    socket.on('conversation:read', async ({ contactId, messageIds }, callback) => {
       if (!contactId) {
         callback?.({ ok: false, messageIds: [] });
         return;
       }
 
-      const readIds = markConversationRead(currentUser.id, String(contactId), messageIds);
+      const readIds = await markConversationRead(currentUser.id, String(contactId), messageIds);
       callback?.({ ok: true, messageIds: readIds });
     });
 
@@ -1718,15 +1749,15 @@ app.prepare().then(async () => {
       emitToUser(call.callerId, 'call:accepted', { callId, byUserId: currentUser.id });
       emitToUser(call.recipientId, 'call:accepted', { callId, byUserId: currentUser.id });
       createCallLogMessage(db, { ...storedCall, status: 'accepted' }, currentUser.id);
-      writeDb(db)
-        .then(() => {
-          const latestMessage = sanitizeMessage(db.messages[db.messages.length - 1]);
-          emitToUser(call.callerId, 'message:new', latestMessage);
-          emitToUser(call.recipientId, 'message:new', latestMessage);
-        })
-        .catch((error) => {
-          console.error('Failed to persist accepted call log:', error);
-        });
+
+      try {
+        await writeDb(db);
+        const latestMessage = sanitizeMessage(db.messages[db.messages.length - 1]);
+        emitToUser(call.callerId, 'message:new', latestMessage);
+        emitToUser(call.recipientId, 'message:new', latestMessage);
+      } catch (error) {
+        console.error('Failed to persist accepted call log:', error);
+      }
     });
 
     socket.on('call:reject', async ({ callId }) => {
@@ -1952,7 +1983,7 @@ app.prepare().then(async () => {
       });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       const db = readDb();
       db.groups
         .filter((group) => groupCallStore.hasParticipant(group.id, currentUser.id))
@@ -1995,7 +2026,7 @@ app.prepare().then(async () => {
         const user = db.users.find((entry) => entry.id === currentUser.id);
         if (user) {
           user.lastSeenAt = new Date().toISOString();
-          writeDb(db);
+          await writeDb(db);
         }
       }
       broadcastPresence(currentUser.id);
