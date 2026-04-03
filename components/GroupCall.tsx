@@ -184,7 +184,7 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     return [selfEntry, ...others];
   }, [activeParticipants, audioEnabled, call.mode, localStream, participantMediaStates, peerConnectionStates, remoteStreams, videoEnabled, videoUnavailable]);
-  const allowAutoFeaturedLayout = participantCount <= 2 || participantCount >= 5;
+  const allowAutoFeaturedLayout = participantCount >= 5;
   const featuredParticipantId = pinnedParticipantId || (allowAutoFeaturedLayout ? (dominantSpeakerId || (participantCount > 6 ? participantEntries.find((participant) => !participant.isSelf)?.id || 'self' : null)) : null);
   const featuredParticipant = featuredParticipantId ? participantEntries.find((participant) => participant.id === featuredParticipantId) || participantEntries[0] : null;
   const railParticipants = featuredParticipant ? participantEntries.filter((participant) => participant.id !== featuredParticipant.id) : [];
