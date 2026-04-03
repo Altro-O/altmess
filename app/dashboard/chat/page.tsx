@@ -774,6 +774,13 @@ export default function ChatPage() {
       setMessages((prev) => [...response.messages, ...prev.filter((message) => !response.messages.some((older) => older.id === message.id))]);
     } else {
       setMessages(response.messages);
+      setSidebarItems((prev) =>
+        prev.map((contact) =>
+          contact.id === contactId && !isGroupContact(contactId)
+            ? { ...contact, unreadCount: 0 }
+            : contact,
+        ),
+      );
     }
 
     setPinnedMessages(sortPinnedMessages(response.pinnedMessages || []));
@@ -801,17 +808,33 @@ export default function ChatPage() {
       return;
     }
 
+    setMessages([]);
+    setPinnedMessages([]);
+    setHasMoreMessages(false);
+    setNextMessagesCursor(null);
+    pendingReadIdsRef.current.clear();
     setSelectionMode(false);
     setSelectedMessageIds([]);
     setShowForwardPicker(false);
     setIsLoadingMessages(true);
+    setSidebarItems((prev) =>
+      prev.map((contact) =>
+        contact.id === activeContactId && !isGroupContact(activeContactId)
+          ? { ...contact, unreadCount: 0 }
+          : contact,
+      ),
+    );
 
     const requestId = activeMessagesRequestRef.current + 1;
     activeMessagesRequestRef.current = requestId;
 
     loadMessagesPage(activeContactId, { requestId })
       .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'))
-      .finally(() => setIsLoadingMessages(false));
+      .finally(() => {
+        if (activeMessagesRequestRef.current === requestId) {
+          setIsLoadingMessages(false);
+        }
+      });
   }, [activeContactId, loadMessagesPage, token]);
 
   useEffect(() => {
@@ -1233,6 +1256,13 @@ export default function ChatPage() {
       setDraftsByContact((prev) => ({ ...prev, [activeContactId]: inputText }));
     }
 
+    setSidebarItems((prev) =>
+      prev.map((contact) =>
+        contact.id === contactId && !isGroupContact(contactId)
+          ? { ...contact, unreadCount: 0 }
+          : contact,
+      ),
+    );
     setActiveContactId(contactId);
     setInputText(draftsByContact[contactId] || '');
     setMessageSearchQuery('');
