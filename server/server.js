@@ -39,7 +39,7 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
 const RING_TIMEOUT_MS = 30000;
 const CALL_RECONNECT_GRACE_MS = Number(process.env.CALL_RECONNECT_GRACE_MS || 45000);
-const MAX_MEDIA_UPLOAD_BYTES = 12 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 32 * 1024 * 1024;
 const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const MEDIA_UPSTREAM_URL = String(process.env.MEDIA_UPSTREAM_URL || '').trim().replace(/\/$/, '');
@@ -1296,7 +1296,7 @@ app.prepare().then(async () => {
     }
 
     if (req.body.length > MAX_MEDIA_UPLOAD_BYTES) {
-      res.status(413).json({ error: 'Файл слишком большой. Пока лимит 12 MB' });
+      res.status(413).json({ error: 'Файл слишком большой. Пока лимит 32 MB' });
       return;
     }
 

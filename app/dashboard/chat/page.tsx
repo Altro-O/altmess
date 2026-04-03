@@ -21,7 +21,7 @@ const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
 const EMOJI_OPTIONS = ['❤️', '👍', '😂', '🔥', '😍', '😮', '😢', '🙏', '👏', '🎉', '🤝', '💯', '😎', '🤔', '👀', '👌'];
 const MAX_IMAGE_DIMENSION = 1600;
-const MAX_FILE_BYTES = 12 * 1024 * 1024;
+const MAX_FILE_BYTES = 32 * 1024 * 1024;
 const PINNED_CHATS_KEY = 'altmess_pinned_chats';
 const DRAFTS_KEY = 'altmess_dialog_drafts';
 const STICKER_USAGE_KEY = 'altmess_sticker_usage';
@@ -1499,16 +1499,16 @@ export default function ChatPage() {
       return;
     }
 
-    const result = await new Promise<{ audioUrl: string; durationSeconds: number } | null>((resolve) => {
+    const result = await new Promise<{ blob: Blob; mimeType: string; durationSeconds: number } | null>((resolve) => {
       recorder.onstop = () => {
         const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         voiceChunksRef.current = [];
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          resolve(typeof reader.result === 'string' ? { audioUrl: reader.result, durationSeconds: voiceSeconds } : null);
-        };
-        reader.readAsDataURL(blob);
+        resolve({
+          blob,
+          mimeType: recorder.mimeType || 'audio/webm',
+          durationSeconds: voiceSeconds,
+        });
       };
 
       recorder.stop();
@@ -1528,16 +1528,39 @@ export default function ChatPage() {
       return;
     }
 
+    setIsUploadingFile(true);
+    setPageError('');
+
+    let uploadedAttachment: NonNullable<ChatMessage['attachment']>;
+
+    try {
+      const voiceFile = new File([result.blob], `voice-${Date.now()}.webm`, {
+        type: result.mimeType || 'audio/webm',
+      });
+      uploadedAttachment = await uploadAttachment(voiceFile);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить голосовое сообщение');
+      setIsUploadingFile(false);
+      setVoiceSeconds(0);
+      return;
+    }
+
     socketRef.current.emit(
       'message:send',
       {
         recipientId: activeContact.id,
         kind: 'voice',
-        voice: result,
+        voice: {
+          audioUrl: uploadedAttachment.fileUrl,
+          durationSeconds: result.durationSeconds,
+        },
+        attachment: uploadedAttachment,
         replyToMessageId: replyMessage?.id,
         replyQuote,
       },
       (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
+        setIsUploadingFile(false);
+
         if (!response.ok || !response.message) {
           setPageError(response.error || 'Не удалось отправить голосовое сообщение');
           return;
@@ -1636,7 +1659,7 @@ export default function ChatPage() {
 
     const tooLargeFile = nextFiles.find((file) => file.size > MAX_FILE_BYTES);
     if (tooLargeFile) {
-      setPageError(`Файл ${tooLargeFile.name} слишком большой. Пока лимит 12 MB`);
+      setPageError(`Файл ${tooLargeFile.name} слишком большой. Пока лимит 32 MB`);
       return;
     }
 

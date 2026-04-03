@@ -8,7 +8,7 @@ const MEDIA_HOST = process.env.MEDIA_HOST || '0.0.0.0';
 const MEDIA_UPLOAD_DIR = path.resolve(process.env.MEDIA_UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 const MEDIA_PUBLIC_BASE_URL = String(process.env.MEDIA_PUBLIC_BASE_URL || '').trim();
 const MEDIA_SERVICE_TOKEN = String(process.env.MEDIA_SERVICE_TOKEN || '').trim();
-const MAX_MEDIA_UPLOAD_BYTES = 12 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 32 * 1024 * 1024;
 
 function sanitizeUploadFileName(fileName) {
   let normalizedName = String(fileName || 'file');
