@@ -6,6 +6,19 @@ import styles from '../../styles/chat.module.css';
 
 const TIMELINE_OVERSCAN_PX = 900;
 
+function isIosWebKit() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function getStickerPreviewUrl(fileUrl: string) {
+  return fileUrl.replace(/\.webm((?:\?.*)?)$/i, '.webp$1');
+}
+
 type TimelineItem = { type: 'date'; key: string; label: string } | { type: 'message'; key: string; message: ChatMessage };
 
 function estimateTimelineItemHeight(item: TimelineItem) {
@@ -20,6 +33,10 @@ function estimateTimelineItemHeight(item: TimelineItem) {
 
   if (message.kind === 'voice') {
     return 132;
+  }
+
+  if (message.kind === 'file' && message.attachment?.isSticker) {
+    return 220;
   }
 
   if (message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/')) {
@@ -163,6 +180,7 @@ export default function MessageTimeline(props: MessageTimelineProps) {
   const [timelineLayoutVersion, setTimelineLayoutVersion] = useState(0);
   const [timelineViewport, setTimelineViewport] = useState({ scrollTop: 0, height: 0 });
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+  const prefersStaticVideoStickers = isIosWebKit();
 
   const timelineItems = useMemo(() => {
     const items: TimelineItem[] = [];
@@ -442,10 +460,10 @@ export default function MessageTimeline(props: MessageTimelineProps) {
                         </div>
                       ) : isStickerMessage && message.attachment ? (
                         <button type="button" className={styles.stickerCard} onClick={() => onPreviewImage({ src: message.attachment!.fileUrl, name: message.attachment!.fileName })}>
-                          {isVideoStickerMessage ? (
+                          {isVideoStickerMessage && !prefersStaticVideoStickers ? (
                             <video src={message.attachment.fileUrl} className={styles.stickerImage} autoPlay muted loop playsInline />
                           ) : (
-                            <img src={message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
+                            <img src={isVideoStickerMessage ? getStickerPreviewUrl(message.attachment.fileUrl) : message.attachment.fileUrl} alt={message.attachment.fileName} className={styles.stickerImage} loading="lazy" />
                           )}
                         </button>
                       ) : isImageMessage && message.attachment ? (

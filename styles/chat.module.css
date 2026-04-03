@@ -394,8 +394,7 @@
 }
 
 .timelineMeasureRow {
-  content-visibility: auto;
-  contain-intrinsic-size: 160px;
+  min-width: 0;
 }
 
 .messageRowOwn,
