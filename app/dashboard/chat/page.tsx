@@ -298,6 +298,8 @@ export default function ChatPage() {
   const [jumpTargetMessageId, setJumpTargetMessageId] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
+  const messagesOwnerContactRef = useRef<string | null>(null);
+  const messagesCacheRef = useRef(new Map<string, { messages: ChatMessage[]; pinnedMessages: ChatMessage[]; hasMore: boolean; nextCursor: string | null }>());
   const messageAreaRef = useRef<HTMLDivElement | null>(null);
   const messageNodeMapRef = useRef(new Map<string, HTMLDivElement>());
   const pendingReadIdsRef = useRef(new Set<string>());
@@ -472,6 +474,19 @@ export default function ChatPage() {
   useEffect(() => {
     activeContactRef.current = activeContactId;
   }, [activeContactId]);
+
+  useEffect(() => {
+    if (!activeContactId || messagesOwnerContactRef.current !== activeContactId) {
+      return;
+    }
+
+    messagesCacheRef.current.set(activeContactId, {
+      messages,
+      pinnedMessages,
+      hasMore: hasMoreMessages,
+      nextCursor: nextMessagesCursor,
+    });
+  }, [activeContactId, hasMoreMessages, messages, nextMessagesCursor, pinnedMessages]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -771,8 +786,10 @@ export default function ChatPage() {
     }
 
     if (options?.appendOlder) {
+      messagesOwnerContactRef.current = contactId;
       setMessages((prev) => [...response.messages, ...prev.filter((message) => !response.messages.some((older) => older.id === message.id))]);
     } else {
+      messagesOwnerContactRef.current = contactId;
       setMessages(response.messages);
       setSidebarItems((prev) =>
         prev.map((contact) =>
@@ -801,6 +818,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!activeContactId || !token) {
+      messagesOwnerContactRef.current = null;
       setMessages([]);
       setPinnedMessages([]);
       setHasMoreMessages(false);
@@ -808,10 +826,22 @@ export default function ChatPage() {
       return;
     }
 
-    setMessages([]);
-    setPinnedMessages([]);
-    setHasMoreMessages(false);
-    setNextMessagesCursor(null);
+    const cachedPage = messagesCacheRef.current.get(activeContactId);
+
+    if (cachedPage) {
+      messagesOwnerContactRef.current = activeContactId;
+      setMessages(cachedPage.messages);
+      setPinnedMessages(cachedPage.pinnedMessages);
+      setHasMoreMessages(cachedPage.hasMore);
+      setNextMessagesCursor(cachedPage.nextCursor);
+    } else {
+      messagesOwnerContactRef.current = activeContactId;
+      setMessages([]);
+      setPinnedMessages([]);
+      setHasMoreMessages(false);
+      setNextMessagesCursor(null);
+    }
+
     pendingReadIdsRef.current.clear();
     setSelectionMode(false);
     setSelectedMessageIds([]);
