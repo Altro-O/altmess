@@ -20,7 +20,7 @@ DATABASE_PATH=/var/data/altmess.sqlite
 TURN_URL=turn:your-turn-server:3478
 TURN_USERNAME=your-turn-username
 TURN_CREDENTIAL=your-turn-password
-STICKERS_MANIFEST_URL=https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json
+STICKERS_MANIFEST_URL=https://altro-o.github.io/altmess-stickers/manifest.json
 ```
 
 Без TURN у части пользователей звонки могут не проходить в мобильных сетях, CGNAT и корпоративных сетях.

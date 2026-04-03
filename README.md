@@ -128,7 +128,7 @@ MEDIA_UPSTREAM_URL=https://media.example.com
 MEDIA_UPSTREAM_TOKEN=change-me
 MEDIA_PUBLIC_BASE_URL=https://media.example.com
 
-STICKERS_MANIFEST_URL=https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json
+STICKERS_MANIFEST_URL=https://altro-o.github.io/altmess-stickers/manifest.json
 ```
 
 ## External sticker repo
@@ -153,13 +153,14 @@ altmess-stickers/
 Hosting options:
 
 - Cloudflare Pages: host the repo as static files and point `STICKERS_MANIFEST_URL` to `https://<project>.pages.dev/manifest.json`
-- GitHub Pages + jsDelivr: keep `manifest.json` in the repo, then use either `https://altro-o.github.io/altmess-stickers/manifest.json` or `https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json`
+- GitHub Pages: keep `manifest.json` in the repo and point `STICKERS_MANIFEST_URL` to `https://altro-o.github.io/altmess-stickers/manifest.json`
+- jsDelivr: optional alternative if you want GitHub-backed CDN URLs like `https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json`
 
 Recommended for this project:
 
-- use `jsDelivr` for raw sticker asset delivery because it gives a stable CDN URL directly from GitHub
+- use GitHub Pages as the primary sticker host for this project
 - keep `manifest.json` simple, with a repo-level `baseUrl` and relative file paths
-- current production manifest URL: `https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json`
+- current production manifest URL: `https://altro-o.github.io/altmess-stickers/manifest.json`
 
 ## Media retention
 

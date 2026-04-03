@@ -3,7 +3,7 @@ import path from 'path';
 
 const STICKERS_DIR = path.join(process.cwd(), 'public', 'stickers');
 const ALLOWED_EXTENSIONS = new Set(['.webp', '.png', '.jpg', '.jpeg', '.gif', '.webm']);
-const DEFAULT_REMOTE_MANIFEST_URL = 'https://cdn.jsdelivr.net/gh/Altro-O/altmess-stickers@main/manifest.json';
+const DEFAULT_REMOTE_MANIFEST_URL = 'https://altro-o.github.io/altmess-stickers/manifest.json';
 const REMOTE_MANIFEST_URL = process.env.STICKERS_MANIFEST_URL?.trim() || DEFAULT_REMOTE_MANIFEST_URL;
 
 type StickerPack = {

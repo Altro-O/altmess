@@ -1,5 +1,5 @@
 {
-  "baseUrl": "https://cdn.jsdelivr.net/gh/your-org/altmess-stickers@main/",
+  "baseUrl": "https://your-user.github.io/altmess-stickers/",
   "packs": [
     {
       "key": "catz",
