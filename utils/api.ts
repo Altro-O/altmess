@@ -95,6 +95,7 @@ type RequestOptions = RequestInit & {
 };
 
 const USER_KEY = 'altmess_user';
+const TOKEN_KEY = 'altmess_token';
 
 export function getStoredUser() {
   if (typeof window === 'undefined') {
@@ -121,12 +122,29 @@ export function storeUser(user: AuthUser) {
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
+export function getStoredToken() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function storeToken(token: string) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
 export function clearUser() {
   if (typeof window === 'undefined') {
     return;
   }
 
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 export async function apiFetch<T>(url: string, options: RequestOptions = {}): Promise<T> {

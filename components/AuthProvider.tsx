@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiFetch, clearUser, getStoredUser, storeUser, type AuthUser } from '../utils/api';
+import { apiFetch, clearUser, getStoredToken, getStoredUser, storeToken, storeUser, type AuthUser } from '../utils/api';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -35,11 +35,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const bootstrap = async () => {
       const storedUser = getStoredUser();
+      const storedToken = getStoredToken();
+
+      if (storedUser) {
+        setUser(storedUser);
+      }
+
+      if (storedToken) {
+        setToken(storedToken);
+      }
 
       try {
-        const response = await apiFetch<{ user: AuthUser }>('/api/auth/me');
-        setToken(response.user.id);
+        const response = await apiFetch<{ token: string; user: AuthUser }>('/api/auth/me');
+        setToken(response.token);
         setUser(response.user);
+        storeToken(response.token);
         storeUser(response.user);
       } catch {
         clearUser();
@@ -60,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       user,
       login: (nextToken, nextUser) => {
+        storeToken(nextToken);
         storeUser(nextUser);
         setToken(nextToken);
         setUser(nextUser);

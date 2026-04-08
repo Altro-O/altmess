@@ -1038,7 +1038,7 @@ app.prepare().then(async () => {
   });
 
   expressApp.get('/api/auth/me', authMiddleware, (req, res) => {
-    res.json({ user: req.user, iceServers: getIceServers() });
+    res.json({ token: getBearerToken(req), user: req.user, iceServers: getIceServers() });
   });
 
   expressApp.patch('/api/profile', authMiddleware, async (req, res) => {
