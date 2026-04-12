@@ -408,7 +408,12 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
 
     const connection = new RTCPeerConnection({ iceServers });
     setPeerConnectionStates((prev) => ({ ...prev, [user.id]: 'connecting' }));
-    localStreamRef.current?.getTracks().forEach((track) => connection.addTrack(track, localStreamRef.current!));
+    localStreamRef.current?.getTracks().forEach((track) => {
+      const alreadyAdded = connection.getSenders().some((sender) => sender.track === track);
+      if (!alreadyAdded) {
+        connection.addTrack(track, localStreamRef.current!);
+      }
+    });
 
     connection.onicecandidate = (event) => {
       if (!event.candidate) {
@@ -584,11 +589,10 @@ export default function GroupCall({ socket, call, currentUserId, iceServers, onC
       }, {});
       setParticipants(participantMap);
 
-      await Promise.all(
-        room
-          .filter((participant) => participant.id !== currentUserId)
-          .map((participant) => createOfferForUser(participant)),
-      );
+      const others = room.filter((participant) => participant.id !== currentUserId);
+      for (const participant of others) {
+        await createOfferForUser(participant);
+      }
 
       setPhase('active');
       setNotice('');

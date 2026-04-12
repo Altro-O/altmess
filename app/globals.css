@@ -31,8 +31,35 @@
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1120;
+  --bg-gradient: linear-gradient(180deg, #0f172a 0%, #0b1120 52%, #0a0f1e 100%);
+  --panel: rgba(15, 23, 42, 0.82);
+  --panel-strong: #1e293b;
+  --line: rgba(148, 163, 184, 0.1);
+  --text: #f1f5f9;
+  --text-inverse: #0f172a;
+  --muted: #94a3b8;
+  --brand: #3b82f6;
+  --brand-2: #2dd4bf;
+  --danger: #f87171;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  --surface: rgba(30, 41, 59, 0.94);
+  --surface-hover: linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(30, 58, 95, 0.96));
+  --input-bg: rgba(30, 41, 59, 0.94);
+  --input-border: rgba(148, 163, 184, 0.15);
+  --input-focus: rgba(59, 130, 246, 0.5);
+  --segment-bg: rgba(148, 163, 184, 0.1);
+  --segment-active: rgba(30, 41, 59, 0.96);
+  --chip-bg: rgba(148, 163, 184, 0.1);
+  --bubble-own: linear-gradient(135deg, rgba(30, 58, 138, 0.5), rgba(30, 64, 175, 0.4));
+  --bubble-other: rgba(30, 41, 59, 0.9);
+  --quick-action: rgba(148, 163, 184, 0.1);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     color-scheme: dark;
     --bg: #0b1120;
     --bg-gradient: linear-gradient(180deg, #0f172a 0%, #0b1120 52%, #0a0f1e 100%);

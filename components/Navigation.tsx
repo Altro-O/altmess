@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import styles from '../styles/navigation.module.css';
 import { useAuth } from './AuthProvider';
+import ThemeToggle from './ThemeToggle';
 
 export default function Navigation() {
   const { isAuthenticated, user, logout } = useAuth();
@@ -48,6 +49,7 @@ export default function Navigation() {
       </Link>
 
       <div className={styles.actions}>
+        <ThemeToggle />
         {isAuthenticated ? (
           <>
             <span className={styles.userChip}>{user?.displayName || user?.username}</span>
@@ -88,6 +90,9 @@ export default function Navigation() {
 
       {menuOpen ? (
         <div ref={menuRef} className={styles.mobileMenu}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 12px' }}>
+            <ThemeToggle />
+          </div>
           {isAuthenticated ? (
             <>
               <span className={styles.mobileMenuUser}>{user?.displayName || user?.username}</span>
