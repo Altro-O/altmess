@@ -510,6 +510,13 @@ export default function MessageTimeline(props: MessageTimelineProps) {
         })}
         {virtualTimelineRange.paddingBottom > 0 ? <div style={{ height: virtualTimelineRange.paddingBottom }} aria-hidden="true" /> : null}
         {visibleMessages.length === 0 && messageSearchQuery.trim() ? <div className={styles.searchEmptyState}>Ничего не найдено в этом диалоге</div> : null}
+        {visibleMessages.length === 0 && !messageSearchQuery.trim() && !isLoadingMessages ? (
+          <div className={styles.emptyChatState}>
+            <div className={styles.emptyChatIcon}>&#9993;</div>
+            <h3 className={styles.emptyChatTitle}>Пока тихо</h3>
+            <p className={styles.emptyChatText}>Начните диалог — отправьте сообщение, стикер или голосовое</p>
+          </div>
+        ) : null}
         <div ref={messagesEndRef} />
       </div>
       {showScrollToLatest ? (

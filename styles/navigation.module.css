@@ -10,8 +10,8 @@
   padding-top: max(16px, env(safe-area-inset-top));
   padding-left: max(24px, env(safe-area-inset-left));
   padding-right: max(24px, env(safe-area-inset-right));
-  border-bottom: 1px solid rgba(17, 24, 39, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.74));
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
@@ -50,15 +50,15 @@
 }
 
 .brandSubtitle {
-  color: #667085;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .userChip {
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.05);
-  color: #111827;
+  background: var(--chip-bg);
+  color: var(--text);
   font-size: 14px;
   font-weight: 800;
 }
@@ -81,12 +81,12 @@
 }
 
 .link {
-  color: #344054;
+  color: var(--muted);
   background: transparent;
 }
 
 .link:hover {
-  background: rgba(17, 24, 39, 0.05);
+  background: var(--chip-bg);
 }
 
 .button {
@@ -111,8 +111,8 @@
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: rgba(17, 24, 39, 0.05);
-  color: #111827;
+  background: var(--chip-bg);
+  color: var(--text);
   place-items: center;
   touch-action: manipulation;
   cursor: pointer;
@@ -165,14 +165,14 @@
     gap: 4px;
     flex-basis: 100%;
     padding: 10px 0 4px;
-    border-top: 1px solid rgba(17, 24, 39, 0.06);
+    border-top: 1px solid var(--line);
   }
 
   .mobileMenuUser {
     padding: 8px 12px;
     border-radius: 12px;
-    background: rgba(17, 24, 39, 0.04);
-    color: #111827;
+    background: var(--chip-bg);
+    color: var(--text);
     font-size: 14px;
     font-weight: 800;
   }
@@ -189,12 +189,12 @@
   }
 
   .mobileMenuLink {
-    color: #344054;
+    color: var(--muted);
     background: transparent;
   }
 
   .mobileMenuLink:hover {
-    background: rgba(17, 24, 39, 0.05);
+    background: var(--chip-bg);
   }
 
   .mobileMenuButton {
@@ -204,7 +204,7 @@
   }
 
   .mobileMenuDanger {
-    color: #c81e1e;
+    color: var(--danger);
     background: rgba(229, 72, 77, 0.08);
   }
 }

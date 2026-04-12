@@ -6,6 +6,7 @@
   justify-content: center;
   gap: 48px;
   padding: 40px 24px;
+  background: var(--bg-gradient);
 }
 
 .hero {
@@ -19,9 +20,9 @@
   padding: 10px 16px;
   border: 1px solid rgba(31, 111, 255, 0.16);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface);
   box-shadow: var(--shadow);
-  color: #1646a3;
+  color: var(--brand);
   font-size: 14px;
   font-weight: 700;
 }
@@ -67,12 +68,12 @@
   display: flex;
   gap: 14px;
   padding: 16px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--line);
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--surface);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  box-shadow: 0 16px 40px rgba(17, 24, 39, 0.08);
+  box-shadow: var(--shadow);
 }
 
 .highlightIcon {
@@ -83,7 +84,7 @@
   display: grid;
   place-items: center;
   background: linear-gradient(135deg, rgba(31, 111, 255, 0.14), rgba(19, 183, 166, 0.16));
-  color: #1256ff;
+  color: var(--brand);
   font-size: 20px;
 }
 
@@ -102,9 +103,9 @@
 .card {
   position: relative;
   padding: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
   border-radius: 32px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--panel);
   -webkit-backdrop-filter: blur(22px);
   backdrop-filter: blur(22px);
   box-shadow: var(--shadow);
@@ -129,7 +130,7 @@
 
 .eyebrow {
   margin: 0 0 8px;
-  color: #1256ff;
+  color: var(--brand);
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -178,15 +179,16 @@
 .input {
   width: 100%;
   padding: 15px 16px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--input-border);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--input-bg);
+  color: var(--text);
   outline: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .input:focus {
-  border-color: rgba(31, 111, 255, 0.42);
+  border-color: var(--input-focus);
   box-shadow: 0 0 0 5px rgba(31, 111, 255, 0.12);
   transform: translateY(-1px);
 }
@@ -221,7 +223,7 @@
 }
 
 .footer a {
-  color: #1256ff;
+  color: var(--brand);
   font-weight: 800;
 }
 
