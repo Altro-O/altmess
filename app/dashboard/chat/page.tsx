@@ -3,11 +3,14 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { io, type Socket } from 'socket.io-client';
+import { type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
 import { type CallSession } from '../../../components/VideoCall';
 import { type GroupCallSession } from '../../../components/GroupCall';
+import { useChatSocket } from '../../../hooks/useChatSocket';
+import { useMessages } from '../../../hooks/useMessages';
+import { useCall } from '../../../hooks/useCall';
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import ChatHeader from '../../../components/chat/ChatHeader';
 import ChatSidebar from '../../../components/chat/ChatSidebar';
@@ -240,24 +243,13 @@ export default function ChatPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading, token, user } = useAuth();
+  const socketRef = useRef<Socket | null>(null);
   const [sidebarItems, setSidebarItems] = useState<Contact[]>([]);
   const [availableContacts, setAvailableContacts] = useState<Contact[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [pinnedMessages, setPinnedMessages] = useState<ChatMessage[]>([]);
-  const [hasMoreMessages, setHasMoreMessages] = useState(false);
-  const [nextMessagesCursor, setNextMessagesCursor] = useState<string | null>(null);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [messageSearchQuery, setMessageSearchQuery] = useState('');
-  const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [dialogScope, setDialogScope] = useState<'all' | 'direct' | 'group'>('all');
   const [activeContactId, setActiveContactId] = useState<string | null>(null);
-  const [pageError, setPageError] = useState('');
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editingText, setEditingText] = useState('');
-  const [actionMessageId, setActionMessageId] = useState<string | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [showMobileChat, setShowMobileChat] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -268,14 +260,6 @@ export default function ChatPage() {
   const [quoteDraft, setQuoteDraft] = useState('');
   const [selectedQuoteText, setSelectedQuoteText] = useState('');
   const [showQuoteEditor, setShowQuoteEditor] = useState(false);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  const [iceServers, setIceServers] = useState<RTCIceServer[]>([
-    { urls: ['stun:stun.l.google.com:19302'] },
-    { urls: ['stun:stun1.l.google.com:19302'] },
-  ]);
-  const [callSession, setCallSession] = useState<CallSession | null>(null);
-  const [callOverlayVisible, setCallOverlayVisible] = useState(true);
-  const [groupCallSession, setGroupCallSession] = useState<GroupCallSession | null>(null);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
@@ -299,18 +283,7 @@ export default function ChatPage() {
   const [stickerPacks, setStickerPacks] = useState<Array<{ key: string; title: string; items: string[] }>>([]);
   const [stickerUsage, setStickerUsage] = useState<Record<string, number>>({});
   const [emojiUsage, setEmojiUsage] = useState<Record<string, number>>({});
-  const [jumpTargetMessageId, setJumpTargetMessageId] = useState<string | null>(null);
-  const socketRef = useRef<Socket | null>(null);
   const activeContactRef = useRef<string | null>(null);
-  const messagesOwnerContactRef = useRef<string | null>(null);
-  const messagesCacheRef = useRef(new Map<string, { messages: ChatMessage[]; pinnedMessages: ChatMessage[]; hasMore: boolean; nextCursor: string | null }>());
-  const messageAreaRef = useRef<HTMLDivElement | null>(null);
-  const messageNodeMapRef = useRef(new Map<string, HTMLDivElement>());
-  const pendingReadIdsRef = useRef(new Set<string>());
-  const activeMessagesRequestRef = useRef(0);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -320,6 +293,80 @@ export default function ChatPage() {
   const quoteSelectionRef = useRef<HTMLDivElement | null>(null);
   const requestedContactId = searchParams?.get('contactId') || null;
   const currentUserId = user?.id || null;
+  const [pageError, setPageError] = useState('');
+
+  const msg = useMessages({ socketRef, token, currentUserId, activeContactId, pinnedChatIds, setPageError, setSidebarItems });
+
+  const callHook = useCall({ socketRef, setPageError });
+
+  const { iceServers } = useChatSocket({
+    socketRef,
+    token,
+    user,
+    currentUserId,
+    activeContactId,
+    setPageError,
+    onMessageNew: msg.handleIncomingMessage,
+    onMessageStatus: msg.handleMessageStatus,
+    onMessageUpdate: msg.handleMessageUpdate,
+    onPresenceSync: (list) => setSidebarItems((prev) => prev.map((c) => { const p = list.find((e) => e.id === c.id); return p ? { ...c, online: p.online, lastSeenAt: p.lastSeenAt } : c; })),
+    onPresenceUpdate: ({ id, online, lastSeenAt }) => setSidebarItems((prev) => prev.map((c) => (c.id === id ? { ...c, online, lastSeenAt } : c))),
+    onGroupNew: (g) => setSidebarItems((prev) => sortContactsWithPins([g, ...prev.filter((c) => c.id !== g.id)], pinnedChatIds)),
+    onGroupUpdate: (g) => setSidebarItems((prev) => sortContactsWithPins(prev.map((c) => (c.id === g.id ? { ...c, ...g } : c)), pinnedChatIds)),
+    onGroupRemoved: (groupId) => { const tid = `group:${groupId}`; setSidebarItems((prev) => prev.filter((c) => c.id !== tid)); if (activeContactId === tid) { setActiveContactId(null); msg.setMessages([]); msg.setPinnedMessages([]); setShowDialogProfile(false); } },
+    onCallIncoming: callHook.handleCallIncoming,
+    onCallEnded: callHook.handleCallEndedCallback,
+    onGroupCallIncoming: callHook.handleGroupCallIncoming,
+    onGroupCallEnded: callHook.handleGroupCallEndedCallback,
+    loadGroupDetails: (id) => loadGroupDetails(id),
+    showDialogProfile,
+  });
+
+  const messages = msg.messages;
+  const setMessages = msg.setMessages;
+  const pinnedMessages = msg.pinnedMessages;
+  const setPinnedMessages = msg.setPinnedMessages;
+  const hasMoreMessages = msg.hasMoreMessages;
+  const isLoadingMessages = msg.isLoadingMessages;
+  const isLoadingOlderMessages = msg.isLoadingOlderMessages;
+  const editingMessageId = msg.editingMessageId;
+  const setEditingMessageId = msg.setEditingMessageId;
+  const editingText = msg.editingText;
+  const setEditingText = msg.setEditingText;
+  const messageSearchQuery = msg.messageSearchQuery;
+  const setMessageSearchQuery = msg.setMessageSearchQuery;
+  const showMessageSearch = msg.showMessageSearch;
+  const setShowMessageSearch = msg.setShowMessageSearch;
+  const highlightedMessageId = msg.highlightedMessageId;
+  const jumpTargetMessageId = msg.jumpTargetMessageId;
+  const setJumpTargetMessageId = msg.setJumpTargetMessageId;
+  const actionMessageId = msg.actionMessageId;
+  const setActionMessageId = msg.setActionMessageId;
+  const messageAreaRef = msg.messageAreaRef;
+  const messagesEndRef = msg.messagesEndRef;
+  const registerMessageNode = msg.registerMessageNode;
+  const loadOlderMessages = msg.loadOlderMessages;
+  const jumpToMessage = msg.jumpToMessage;
+  const toggleReaction = msg.toggleReaction;
+  const togglePinnedMessage = msg.togglePinnedMessage;
+  const submitEdit = msg.submitEdit;
+  const deleteMessage = msg.deleteMessage;
+  const openMessageActions = msg.openMessageActions;
+  const startLongPress = msg.startLongPress;
+  const stopLongPress = msg.stopLongPress;
+  const visibleMessages = msg.visibleMessages;
+  const galleryImages = msg.galleryImages;
+
+  const callSession = callHook.callSession;
+  const callOverlayVisible = callHook.callOverlayVisible;
+  const groupCallSession = callHook.groupCallSession;
+  const handleCloseCall = callHook.handleCloseCall;
+  const handleCloseGroupCall = callHook.handleCloseGroupCall;
+  const handleMinimizeCall = callHook.handleMinimizeCall;
+  const handleRestoreCall = callHook.handleRestoreCall;
+  const startCall = (mode: 'audio' | 'video') => callHook.startCall(mode, activeContact!);
+  const startGroupCall = (mode: 'audio' | 'video') => callHook.startGroupCall(mode, activeContact!);
+
   const actionMessage = actionMessageId ? messages.find((message) => message.id === actionMessageId) || null : null;
 
   const formatFileSize = (sizeBytes: number) => {
@@ -480,19 +527,6 @@ export default function ChatPage() {
   }, [activeContactId]);
 
   useEffect(() => {
-    if (!activeContactId || messagesOwnerContactRef.current !== activeContactId) {
-      return;
-    }
-
-    messagesCacheRef.current.set(activeContactId, {
-      messages,
-      pinnedMessages,
-      hasMore: hasMoreMessages,
-      nextCursor: nextMessagesCursor,
-    });
-  }, [activeContactId, hasMoreMessages, messages, nextMessagesCursor, pinnedMessages]);
-
-  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -562,198 +596,6 @@ export default function ChatPage() {
   }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
-    if (!token || !user) {
-      return;
-    }
-
-    let alive = true;
-    const closeActiveCall = ({ callId }: { callId: string }) => {
-      setCallSession((prev) => (prev?.callId === callId ? null : prev));
-      setCallOverlayVisible(true);
-    };
-
-    const syncVisibility = () => {
-      socketRef.current?.emit('client:visibility', { visible: document.visibilityState === 'visible' });
-    };
-
-    const bootstrap = async () => {
-      try {
-        const rtcResponse = await apiFetch<{ iceServers: RTCIceServer[] }>('/api/rtc/config');
-        if (!alive) {
-          return;
-        }
-
-        setIceServers(rtcResponse.iceServers);
-
-        const socket = io({
-          withCredentials: true,
-          reconnection: true,
-          reconnectionAttempts: Infinity,
-          reconnectionDelay: 1000,
-          reconnectionDelayMax: 5000,
-          timeout: 20000,
-        });
-        socketRef.current = socket;
-
-        socket.on('connect', () => {
-          setPageError((prev) => (prev === 'Не удалось подключиться к realtime-серверу' ? '' : prev));
-          syncVisibility();
-        });
-        document.addEventListener('visibilitychange', syncVisibility);
-        window.addEventListener('focus', syncVisibility);
-        window.addEventListener('blur', syncVisibility);
-
-        socket.on('connect_error', () => {
-          setPageError('Не удалось подключиться к realtime-серверу');
-        });
-
-        socket.on('presence:sync', (presenceList: Array<{ id: string; online: boolean; lastSeenAt: string | null }>) => {
-          setSidebarItems((prev) =>
-            prev.map((contact) => {
-              const presence = presenceList.find((entry) => entry.id === contact.id);
-              return presence ? { ...contact, online: presence.online, lastSeenAt: presence.lastSeenAt } : contact;
-            }),
-          );
-        });
-
-        socket.on('presence:update', ({ id, online, lastSeenAt }: { id: string; online: boolean; lastSeenAt: string | null }) => {
-          setSidebarItems((prev) =>
-            prev.map((contact) => (contact.id === id ? { ...contact, online, lastSeenAt } : contact)),
-          );
-        });
-
-        socket.on('message:new', (message: ChatMessage) => {
-          const currentContactId = activeContactRef.current;
-          const partnerId = getMessageTargetId(message, currentUserId);
-
-          if (!message.groupId && message.recipientId === currentUserId) {
-            socket.emit('message:delivered', { messageIds: [message.id] });
-          }
-
-          setSidebarItems((prev) => {
-            const existing = prev.find((contact) => contact.id === partnerId);
-            if (!existing) {
-              return prev;
-            }
-
-            return sortContactsWithPins([
-              {
-                ...existing,
-                lastMessage: message,
-                unreadCount: message.groupId ? (existing.unreadCount || 0) : (message.senderId !== currentUserId ? (existing.unreadCount || 0) + 1 : 0),
-              },
-              ...prev.filter((contact) => contact.id !== partnerId),
-            ], pinnedChatIds);
-          });
-
-          if (partnerId === currentContactId) {
-            setMessages((prev) => upsertMessage(prev, message));
-          }
-        });
-
-        socket.on('message:status', (patch: Partial<ChatMessage> & { id: string }) => {
-          setMessages((prev) => prev.map((message) => (message.id === patch.id ? { ...message, ...patch } : message)));
-          setSidebarItems((prev) =>
-            sortContactsWithPins(prev.map((contact) =>
-              contact.id === patch.senderId && patch.recipientId === currentUserId && patch.status === 'read'
-                ? {
-                    ...contact,
-                    unreadCount: Math.max(0, (contact.unreadCount || 0) - 1),
-                    lastMessage: contact.lastMessage?.id === patch.id ? { ...contact.lastMessage, ...patch } : contact.lastMessage,
-                  }
-                : contact.lastMessage?.id === patch.id
-                  ? { ...contact, lastMessage: { ...contact.lastMessage, ...patch } }
-                  : contact,
-            ), pinnedChatIds),
-          );
-        });
-
-        socket.on('message:update', (message: ChatMessage) => {
-          setMessages((prev) => upsertMessage(prev, message));
-          setPinnedMessages((prev) => {
-            const withoutCurrent = prev.filter((entry) => entry.id !== message.id);
-            if (!message.pinnedAt || message.deletedAt) {
-              return withoutCurrent;
-            }
-
-            return sortPinnedMessages([...withoutCurrent, message]);
-          });
-          setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === message.id ? { ...contact, lastMessage: message } : contact)), pinnedChatIds));
-        });
-
-        socket.on('group:new', ({ group }: { group: Contact }) => {
-          setSidebarItems((prev) => sortContactsWithPins([group, ...prev.filter((contact) => contact.id !== group.id)], pinnedChatIds));
-        });
-
-        socket.on('group:update', ({ group }: { group: Contact }) => {
-          setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.id === group.id ? { ...contact, ...group } : contact)), pinnedChatIds));
-          if (activeContactRef.current === group.id && showDialogProfile) {
-            loadGroupDetails(group.id);
-          }
-        });
-
-        socket.on('group:removed', ({ groupId }: { groupId: string }) => {
-          const targetId = `group:${groupId}`;
-          setSidebarItems((prev) => prev.filter((contact) => contact.id !== targetId));
-          if (activeContactRef.current === targetId) {
-            setActiveContactId(null);
-            setMessages([]);
-            setPinnedMessages([]);
-            setShowDialogProfile(false);
-          }
-        });
-
-        socket.on('call:incoming', ({ callId, mode, fromUser }: { callId: string; mode: 'audio' | 'video'; fromUser: Contact }) => {
-          setCallSession({
-            callId,
-            peerUserId: fromUser.id,
-            peerName: fromUser.displayName || fromUser.username,
-            peerAvatarUrl: fromUser.avatarUrl,
-            peerAvatarColor: fromUser.avatarColor,
-            mode,
-            initiator: false,
-          });
-          setCallOverlayVisible(true);
-        });
-
-        socket.on('group-call:incoming', ({ groupId, mode, title, fromUser }: { groupId: string; mode: 'audio' | 'video'; title: string; fromUser: Contact }) => {
-          setGroupCallSession({
-            groupId,
-            mode,
-            title,
-            initiator: false,
-            incomingFrom: fromUser,
-          });
-        });
-
-        socket.on('group-call:ended', ({ groupId }: { groupId: string }) => {
-          setGroupCallSession((current) => (current?.groupId === groupId ? null : current));
-        });
-
-        socket.on('call:ended', closeActiveCall);
-        socket.on('call:rejected', closeActiveCall);
-        socket.on('call:missed', closeActiveCall);
-      } catch (error) {
-        setPageError(error instanceof Error ? error.message : 'Не удалось загрузить чат');
-      }
-    };
-
-    bootstrap();
-
-    return () => {
-      alive = false;
-        document.removeEventListener('visibilitychange', syncVisibility);
-        window.removeEventListener('focus', syncVisibility);
-        window.removeEventListener('blur', syncVisibility);
-        socketRef.current?.off('call:ended', closeActiveCall);
-        socketRef.current?.off('call:rejected', closeActiveCall);
-        socketRef.current?.off('call:missed', closeActiveCall);
-        socketRef.current?.disconnect();
-        socketRef.current = null;
-      };
-  }, [currentUserId, router, token, user]);
-
-  useEffect(() => {
     loadSidebar().catch((error) => {
       setPageError(error instanceof Error ? error.message : 'Не удалось загрузить контакты');
     });
@@ -768,108 +610,6 @@ export default function ChatPage() {
       setPageError(error instanceof Error ? error.message : 'Не удалось загрузить контакты для группы');
     });
   }, [loadAvailableContacts, showCreateGroupModal]);
-
-  const loadMessagesPage = useCallback(async (contactId: string, options?: { beforeMessageId?: string; appendOlder?: boolean; requestId?: number }) => {
-    if (!token) {
-      return;
-    }
-
-    const params = new URLSearchParams({
-      contactId,
-      limit: String(MESSAGES_PAGE_SIZE),
-    });
-
-    if (options?.beforeMessageId) {
-      params.set('beforeMessageId', options.beforeMessageId);
-    }
-
-    const response = await apiFetch<MessagesPage>(`/api/messages?${params.toString()}`);
-
-    if (!options?.appendOlder && options?.requestId && options.requestId !== activeMessagesRequestRef.current) {
-      return;
-    }
-
-    if (options?.appendOlder) {
-      messagesOwnerContactRef.current = contactId;
-      setMessages((prev) => [...response.messages, ...prev.filter((message) => !response.messages.some((older) => older.id === message.id))]);
-    } else {
-      messagesOwnerContactRef.current = contactId;
-      setMessages(response.messages);
-      setSidebarItems((prev) =>
-        prev.map((contact) =>
-          contact.id === contactId && !isGroupContact(contactId)
-            ? { ...contact, unreadCount: 0 }
-            : contact,
-        ),
-      );
-    }
-
-    setPinnedMessages(sortPinnedMessages(response.pinnedMessages || []));
-
-    setHasMoreMessages(response.hasMore);
-    setNextMessagesCursor(response.nextCursor);
-
-    if (!options?.appendOlder && !isGroupContact(contactId)) {
-      const undeliveredIncomingIds = response.messages
-        .filter((message) => message.senderId === contactId && message.recipientId === currentUserId && !message.deliveredAt)
-        .map((message) => message.id);
-
-      if (undeliveredIncomingIds.length > 0) {
-        socketRef.current?.emit('message:delivered', { messageIds: undeliveredIncomingIds });
-      }
-    }
-  }, [currentUserId, token]);
-
-  useEffect(() => {
-    if (!activeContactId || !token) {
-      messagesOwnerContactRef.current = null;
-      setMessages([]);
-      setPinnedMessages([]);
-      setHasMoreMessages(false);
-      setNextMessagesCursor(null);
-      return;
-    }
-
-    const cachedPage = messagesCacheRef.current.get(activeContactId);
-
-    if (cachedPage) {
-      messagesOwnerContactRef.current = activeContactId;
-      setMessages(cachedPage.messages);
-      setPinnedMessages(cachedPage.pinnedMessages);
-      setHasMoreMessages(cachedPage.hasMore);
-      setNextMessagesCursor(cachedPage.nextCursor);
-    } else {
-      messagesOwnerContactRef.current = activeContactId;
-      setMessages([]);
-      setPinnedMessages([]);
-      setHasMoreMessages(false);
-      setNextMessagesCursor(null);
-    }
-
-    pendingReadIdsRef.current.clear();
-    setSelectionMode(false);
-    setSelectedMessageIds([]);
-    setShowForwardPicker(false);
-    setIsLoadingMessages(true);
-    setSidebarItems((prev) =>
-      prev.map((contact) =>
-        contact.id === activeContactId && !isGroupContact(activeContactId)
-          ? { ...contact, unreadCount: 0 }
-          : contact,
-      ),
-    );
-
-    const requestId = activeMessagesRequestRef.current + 1;
-    activeMessagesRequestRef.current = requestId;
-
-    loadMessagesPage(activeContactId, { requestId })
-      .catch((error) => setPageError(error instanceof Error ? error.message : 'Не удалось загрузить сообщения'))
-      .finally(() => {
-        if (activeMessagesRequestRef.current === requestId) {
-          setIsLoadingMessages(false);
-        }
-      });
-  }, [activeContactId, loadMessagesPage, token]);
 
   useEffect(() => {
     if (!requestedContactId || !sidebarItems.some((contact) => contact.id === requestedContactId)) {
@@ -896,98 +636,6 @@ export default function ChatPage() {
     }
   }, [selectedMessageIds]);
 
-  const registerMessageNode = useCallback((messageId: string, node: HTMLDivElement | null) => {
-    if (node) {
-      messageNodeMapRef.current.set(messageId, node);
-      return;
-    }
-
-    messageNodeMapRef.current.delete(messageId);
-    pendingReadIdsRef.current.delete(messageId);
-  }, []);
-
-  useEffect(() => {
-    if (!socketRef.current || !activeContactId || document.visibilityState !== 'visible' || isGroupContact(activeContactId)) {
-      return;
-    }
-
-    if (isMobileLayout && !showMobileChat) {
-      return;
-    }
-
-    const unreadIncoming = messages.filter(
-      (message) => message.senderId === activeContactId && message.recipientId === currentUserId && !message.readAt,
-    );
-
-    if (unreadIncoming.length === 0) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleIds = entries
-          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= READ_VISIBILITY_THRESHOLD)
-          .map((entry) => entry.target.getAttribute('data-message-id'))
-          .filter((value): value is string => Boolean(value))
-          .filter((messageId) => !pendingReadIdsRef.current.has(messageId));
-
-        if (visibleIds.length === 0) {
-          return;
-        }
-
-        visibleIds.forEach((messageId) => pendingReadIdsRef.current.add(messageId));
-        socketRef.current?.emit(
-          'conversation:read',
-          { contactId: activeContactId, messageIds: visibleIds },
-          (response: { ok: boolean; messageIds?: string[] }) => {
-            const acknowledgedIds = response?.messageIds || [];
-
-            acknowledgedIds.forEach((messageId) => pendingReadIdsRef.current.delete(messageId));
-
-            if (!response?.ok || acknowledgedIds.length === 0) {
-              visibleIds.forEach((messageId) => pendingReadIdsRef.current.delete(messageId));
-              return;
-            }
-
-            setMessages((prev) =>
-              prev.map((message) =>
-                acknowledgedIds.includes(message.id)
-                  ? {
-                      ...message,
-                      status: 'read',
-                      deliveredAt: message.deliveredAt || new Date().toISOString(),
-                      readAt: message.readAt || new Date().toISOString(),
-                    }
-                  : message,
-              ),
-            );
-
-            setSidebarItems((prev) =>
-              prev.map((contact) =>
-                contact.id === activeContactId
-                  ? { ...contact, unreadCount: Math.max(0, (contact.unreadCount || 0) - acknowledgedIds.length) }
-                  : contact,
-              ),
-            );
-          },
-        );
-      },
-      {
-        root: messageAreaRef.current,
-        threshold: [READ_VISIBILITY_THRESHOLD],
-      },
-    );
-
-    unreadIncoming.forEach((message) => {
-      const node = messageNodeMapRef.current.get(message.id);
-      if (node) {
-        observer.observe(node);
-      }
-    });
-
-    return () => observer.disconnect();
-  }, [activeContactId, currentUserId, isMobileLayout, messages, showMobileChat]);
-
   useEffect(() => {
     const syncViewport = () => {
       const nextIsMobile = window.innerWidth <= MOBILE_BREAKPOINT;
@@ -1004,16 +652,25 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    const handleClose = () => setActionMessageId(null);
-    window.addEventListener('click', handleClose);
-    return () => window.removeEventListener('click', handleClose);
-  }, []);
-
-  useEffect(() => () => {
-    if (highlightTimerRef.current) {
-      clearTimeout(highlightTimerRef.current);
+    if (!showQuoteEditor) {
+      setSelectedQuoteText('');
+      return;
     }
 
+    const updateSelectedQuote = () => {
+      const selection = typeof window !== 'undefined' ? window.getSelection() : null;
+      const nextSelection = selection && quoteSelectionRef.current?.contains(selection.anchorNode)
+        ? selection.toString().trim()
+        : '';
+
+      setSelectedQuoteText(nextSelection);
+    };
+
+    document.addEventListener('selectionchange', updateSelectedQuote);
+    return () => document.removeEventListener('selectionchange', updateSelectedQuote);
+  }, [showQuoteEditor]);
+
+  useEffect(() => () => {
     if (voiceTimerRef.current) {
       clearInterval(voiceTimerRef.current);
     }
@@ -1044,20 +701,6 @@ export default function ChatPage() {
   );
 
   const deferredMessageSearchQuery = useDeferredValue(messageSearchQuery);
-
-  const visibleMessages = useMemo(() => {
-    const query = deferredMessageSearchQuery.trim().toLowerCase();
-    if (!query) {
-      return messages;
-    }
-
-    return messages.filter((message) => getMessageSearchValue(message).includes(query));
-  }, [deferredMessageSearchQuery, messages]);
-
-  const galleryImages = useMemo(
-    () => messages.filter((message) => message.kind === 'file' && message.attachment?.mimeType?.startsWith('image/') && !message.attachment?.isSticker && !isAttachmentExpired(message) && !message.deletedAt),
-    [messages],
-  );
 
   const groupedGalleryImages = useMemo(() => {
     const groups = new Map<string, { label: string; items: ChatMessage[] }>();
@@ -1258,32 +901,6 @@ export default function ChatPage() {
 
     loadGroupDetails(activeContactId);
   }, [activeContactId, loadGroupDetails, showDialogProfile]);
-
-  const loadOlderMessages = useCallback(async () => {
-    if (!activeContactId || !nextMessagesCursor || isLoadingOlderMessages) {
-      return;
-    }
-
-    const area = messageAreaRef.current;
-    const previousScrollHeight = area?.scrollHeight || 0;
-    setIsLoadingOlderMessages(true);
-
-    try {
-      await loadMessagesPage(activeContactId, { beforeMessageId: nextMessagesCursor, appendOlder: true });
-      requestAnimationFrame(() => {
-        if (!area) {
-          return;
-        }
-
-        const nextScrollHeight = area.scrollHeight;
-        area.scrollTop += nextScrollHeight - previousScrollHeight;
-      });
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Не удалось загрузить старые сообщения');
-    } finally {
-      setIsLoadingOlderMessages(false);
-    }
-  }, [activeContactId, isLoadingOlderMessages, loadMessagesPage, nextMessagesCursor]);
 
   const handleSelectContact = (contactId: string) => {
     if (activeContactId && activeContactId !== contactId) {
@@ -1502,59 +1119,6 @@ export default function ChatPage() {
     setInputText((prev) => `${prev}${emoji}`);
     setEmojiUsage((prev) => ({ ...prev, [emoji]: (prev[emoji] || 0) + 1 }));
     setShowEmojiPicker(false);
-  };
-
-  const jumpToMessage = (messageId: string) => {
-    setJumpTargetMessageId(messageId);
-
-    setHighlightedMessageId(messageId);
-    if (highlightTimerRef.current) {
-      clearTimeout(highlightTimerRef.current);
-    }
-
-    highlightTimerRef.current = setTimeout(() => {
-      setHighlightedMessageId(null);
-      highlightTimerRef.current = null;
-    }, 1800);
-  };
-
-  const toggleReaction = (messageId: string, emoji: string) => {
-    if (!socketRef.current) {
-      return;
-    }
-
-    socketRef.current.emit('message:react', { messageId, emoji }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-      if (!response.ok || !response.message) {
-        setPageError(response.error || 'Не удалось обновить реакцию');
-        return;
-      }
-
-      setMessages((prev) => upsertMessage(prev, response.message!));
-    });
-  };
-
-  const togglePinnedMessage = (message: ChatMessage) => {
-    if (!socketRef.current) {
-      return;
-    }
-
-    socketRef.current.emit('message:pin', { messageId: message.id, pinned: !message.pinnedAt }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-      if (!response.ok || !response.message) {
-        setPageError(response.error || 'Не удалось обновить закреп');
-        return;
-      }
-
-      setMessages((prev) => upsertMessage(prev, response.message!));
-      setPinnedMessages((prev) => {
-        const withoutCurrent = prev.filter((entry) => entry.id !== response.message!.id);
-        if (!response.message!.pinnedAt || response.message!.deletedAt) {
-          return withoutCurrent;
-        }
-
-        return sortPinnedMessages([...withoutCurrent, response.message!]);
-      });
-      setActionMessageId(null);
-    });
   };
 
   const stopVoiceRecording = async () => {
@@ -1830,179 +1394,6 @@ export default function ChatPage() {
       },
     );
   };
-
-  const submitEdit = (messageId: string) => {
-    if (!socketRef.current || !editingText.trim()) {
-      return;
-    }
-
-    socketRef.current.emit('message:edit', { messageId, content: editingText }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-      if (!response.ok || !response.message) {
-        setPageError(response.error || 'Не удалось изменить сообщение');
-        return;
-      }
-
-      setMessages((prev) => upsertMessage(prev, response.message!));
-      setEditingMessageId(null);
-      setEditingText('');
-    });
-  };
-
-  const deleteMessage = (messageId: string) => {
-    if (!socketRef.current) {
-      return;
-    }
-
-    socketRef.current.emit('message:delete', { messageId }, (response: { ok: boolean; error?: string; message?: ChatMessage }) => {
-      if (!response.ok || !response.message) {
-        setPageError(response.error || 'Не удалось удалить сообщение');
-        return;
-      }
-
-      setMessages((prev) => upsertMessage(prev, response.message!));
-      setSidebarItems((prev) => sortContactsWithPins(prev.map((contact) => (contact.lastMessage?.id === messageId ? { ...contact, lastMessage: response.message } : contact)), pinnedChatIds));
-      setActionMessageId(null);
-    });
-  };
-
-  const openMessageActions = (messageId: string) => {
-    setActionMessageId(messageId);
-  };
-
-  const startLongPress = (messageId: string) => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-    }
-
-    longPressTimerRef.current = setTimeout(() => {
-      setActionMessageId(messageId);
-    }, 450);
-  };
-
-  const stopLongPress = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
-  const requestCallMediaAccess = async (mode: 'audio' | 'video') => {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Браузер не поддерживает доступ к микрофону/камере');
-    }
-
-    let stream: MediaStream | null = null;
-
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-        video: mode === 'video',
-      });
-    } catch (error) {
-      if (mode === 'video') {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-          },
-          video: false,
-        });
-      } else {
-        throw error;
-      }
-    }
-
-    const hasAudioTrack = stream.getAudioTracks().length > 0;
-    stream.getTracks().forEach((track) => track.stop());
-
-    if (!hasAudioTrack) {
-      throw new Error('Не удалось получить доступ к микрофону');
-    }
-  };
-
-  const startCall = async (mode: 'audio' | 'video') => {
-    if (!socketRef.current || !activeContact) {
-      return;
-    }
-
-    try {
-      await requestCallMediaAccess(mode);
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Нужен доступ к микрофону и камере для звонка');
-      return;
-    }
-
-    socketRef.current.emit('call:start', { toUserId: activeContact.id, mode }, (response: { ok: boolean; callId?: string; error?: string }) => {
-      if (!response.ok || !response.callId) {
-        setPageError(response.error || 'Не удалось начать звонок');
-        return;
-      }
-
-      setCallSession({
-        callId: response.callId,
-        peerUserId: activeContact.id,
-        peerName: activeContact.displayName || activeContact.username,
-        peerAvatarUrl: activeContact.avatarUrl,
-        peerAvatarColor: activeContact.avatarColor,
-        mode,
-        initiator: true,
-      });
-      setCallOverlayVisible(true);
-    });
-  };
-
-  const startGroupCall = async (mode: 'audio' | 'video') => {
-    if (!socketRef.current || !activeContact || activeContact.type !== 'group') {
-      return;
-    }
-
-    try {
-      await requestCallMediaAccess(mode);
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Нужен доступ к микрофону и камере для звонка');
-      return;
-    }
-
-    socketRef.current.emit('group-call:start', { groupId: activeContact.id.slice('group:'.length), mode }, (response: { ok: boolean; error?: string; room?: { groupId: string; title: string; mode: 'audio' | 'video' } }) => {
-      if (!response.ok || !response.room) {
-        setPageError(response.error || 'Не удалось начать групповой звонок');
-        return;
-      }
-
-      setGroupCallSession({
-        groupId: response.room.groupId,
-        title: response.room.title,
-        mode: response.room.mode,
-        initiator: true,
-        incomingFrom: null,
-      });
-      setPageError('');
-    });
-  };
-
-  const handleCloseCall = useCallback(() => {
-    setCallSession(null);
-    setCallOverlayVisible(true);
-  }, []);
-
-  const handleCloseGroupCall = useCallback(() => {
-    setGroupCallSession(null);
-  }, []);
-
-  const handleMinimizeCall = useCallback(() => {
-    setCallOverlayVisible(false);
-  }, []);
-
-  const handleRestoreCall = useCallback(() => {
-    setCallOverlayVisible(true);
-  }, []);
 
   if (isLoading || !user) {
     return null;
