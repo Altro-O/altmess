@@ -273,6 +273,10 @@ export default function ChatComposer(props: ChatComposerProps) {
             placeholder="Введите сообщение..."
             className={styles.composerInput}
             rows={1}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
           />
           <div className={styles.composerInlineActions}>
             {isMobileLayout ? <button type="button" className={styles.inlineIconButton} title={isUploadingFile ? 'Загрузка...' : 'Прикрепить файл'} onClick={onOpenFilePicker}>

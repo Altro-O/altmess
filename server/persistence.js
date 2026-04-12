@@ -5,6 +5,9 @@ const { Pool } = require('pg');
 const DATA_FILE = process.env.DATABASE_PATH || path.join(__dirname, 'data', 'altmess-db.json');
 const DATABASE_URL = process.env.DATABASE_URL || '';
 
+let saveTimer = null;
+const SAVE_DEBOUNCE_MS = 150;
+
 function normalizeDatabaseUrl(connectionString) {
   if (!connectionString) {
     return '';
@@ -107,23 +110,54 @@ async function loadState() {
   return state;
 }
 
-async function saveState(nextState) {
-  state = normalizeState(nextState);
+async function flushState() {
+  const serialized = JSON.stringify(state, null, 2);
   ensureFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf8');
+
+  try {
+    await fs.promises.writeFile(DATA_FILE, serialized, 'utf8');
+  } catch (writeErr) {
+    console.error('Failed to write state file:', writeErr);
+  }
 
   if (!NORMALIZED_DATABASE_URL) {
     return;
   }
 
-  const client = await initPostgres();
-  await client.query(
-    `INSERT INTO app_state (id, data, updated_at)
-     VALUES (1, $1::jsonb, NOW())
-     ON CONFLICT (id)
-     DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
-    [JSON.stringify(state)],
-  );
+  try {
+    const client = await initPostgres();
+    await client.query(
+      `INSERT INTO app_state (id, data, updated_at)
+       VALUES (1, $1::jsonb, NOW())
+       ON CONFLICT (id)
+       DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+      [serialized],
+    );
+  } catch (pgErr) {
+    console.error('Failed to persist state to Postgres:', pgErr);
+  }
+}
+
+function saveState(nextState) {
+  state = normalizeState(nextState);
+
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+  }
+
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    flushState().catch((err) => console.error('State flush error:', err));
+  }, SAVE_DEBOUNCE_MS);
+}
+
+async function forceFlush() {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+
+  await flushState();
 }
 
 function getState() {
@@ -135,4 +169,5 @@ module.exports = {
   getState,
   loadState,
   saveState,
+  forceFlush,
 };

@@ -12,6 +12,10 @@
   --brand-2: #13b7a6;
   --danger: #e5484d;
   --shadow: 0 20px 60px rgba(31, 56, 120, 0.14);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 * {
@@ -46,8 +50,10 @@ textarea {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 main {
   min-height: calc(100vh - 78px);
+  padding-bottom: var(--safe-bottom);
 }

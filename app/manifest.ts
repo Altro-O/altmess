@@ -5,10 +5,11 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Altmess',
     short_name: 'Altmess',
     description: 'Realtime messenger with messages and calls',
-    start_url: '/',
+    start_url: '/dashboard/chat',
     display: 'standalone',
     background_color: '#f4f6fb',
     theme_color: '#1f6fff',
+    orientation: 'portrait-primary',
     icons: [
       {
         src: '/altmess.jpeg',

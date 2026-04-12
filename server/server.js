@@ -8,7 +8,7 @@ const { randomUUID } = require('crypto');
 const fs = require('fs/promises');
 const path = require('path');
 const webpush = require('web-push');
-const { loadState, saveState, getState, DATABASE_URL } = require('./persistence');
+const { loadState, saveState, getState, forceFlush, DATABASE_URL } = require('./persistence');
 const { createGroupCallStore } = require('./group-calls');
 const {
   ensureGroupsState,
@@ -2049,4 +2049,17 @@ app.prepare().then(async () => {
 
       console.log(`> Ready on http://${hostname}:${port}`);
     });
+
+  const gracefulShutdown = async (signal) => {
+    console.log(`${signal} received, flushing state...`);
+    try {
+      await forceFlush();
+    } catch (err) {
+      console.error('State flush failed on shutdown:', err);
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 });

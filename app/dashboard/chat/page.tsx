@@ -2,11 +2,12 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../../components/AuthProvider';
 import UserAvatar from '../../../components/UserAvatar';
-import VideoCall, { type CallSession } from '../../../components/VideoCall';
-import GroupCall, { type GroupCallSession } from '../../../components/GroupCall';
+import { type CallSession } from '../../../components/VideoCall';
+import { type GroupCallSession } from '../../../components/GroupCall';
 import CreateGroupModal from '../../../components/groups/CreateGroupModal';
 import ChatHeader from '../../../components/chat/ChatHeader';
 import ChatSidebar from '../../../components/chat/ChatSidebar';
@@ -16,6 +17,9 @@ import MessageActionSheet from '../../../components/chat/MessageActionSheet';
 import DialogProfileSheet from '../../../components/chat/DialogProfileSheet';
 import { apiFetch, type ChatMessage, type Contact, type GroupDetails, type MessagesPage } from '../../../utils/api';
 import styles from '../../../styles/chat.module.css';
+
+const VideoCall = dynamic(() => import('../../../components/VideoCall'), { ssr: false });
+const GroupCall = dynamic(() => import('../../../components/GroupCall'), { ssr: false });
 
 const MOBILE_BREAKPOINT = 960;
 const READ_VISIBILITY_THRESHOLD = 0.8;
