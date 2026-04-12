@@ -1,24 +1,30 @@
 import CryptoJS from 'crypto-js';
 
-// Ключ шифрования (в реальном приложении должен быть более безопасным)
-const SECRET_KEY = typeof window !== 'undefined' ? localStorage.getItem('encryption_key') || generateKey() : generateKey();
+function generateSecureKey(): string {
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+    const bytes = new Uint8Array(32);
+    window.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
 
-function generateKey(): string {
-  // В реальном приложении используйте более надежный метод генерации ключа
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
-if (typeof window !== 'undefined' && !localStorage.getItem('encryption_key')) {
-  localStorage.setItem('encryption_key', SECRET_KEY);
-}
+const SECRET_KEY = typeof window !== 'undefined'
+  ? (localStorage.getItem('encryption_key') || (() => {
+      const key = generateSecureKey();
+      localStorage.setItem('encryption_key', key);
+      return key;
+    })())
+  : generateSecureKey();
 
 export function encryptMessage(text: string, key: string = SECRET_KEY): string {
   try {
     const encrypted = CryptoJS.AES.encrypt(text, key).toString();
     return encrypted;
   } catch (error) {
-    console.error('Ошибка шифрования:', error);
-    return text; // Возвращаем не зашифрованный текст в случае ошибки
+    console.error('Encryption error:', error);
+    return text;
   }
 }
 
@@ -27,17 +33,15 @@ export function decryptMessage(encryptedText: string, key: string = SECRET_KEY):
     const decrypted = CryptoJS.AES.decrypt(encryptedText, key).toString(CryptoJS.enc.Utf8);
     return decrypted;
   } catch (error) {
-    console.error('Ошибка расшифровки:', error);
-    return encryptedText; // Возвращаем зашифрованный текст в случае ошибки
+    console.error('Decryption error:', error);
+    return encryptedText;
   }
 }
 
 export function generatePrivateKey(): string {
-  // Генерация приватного ключа для сквозного шифрования
-  return btoa(Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
+  return generateSecureKey();
 }
 
 export function hashPassword(password: string): string {
-  // Простое хеширование пароля (в реальном приложении используйте bcrypt или аналог)
   return CryptoJS.SHA256(password).toString();
 }
