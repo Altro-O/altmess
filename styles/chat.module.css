@@ -454,8 +454,8 @@
 .timelineDateBadge {
   padding: 8px 14px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #667085;
+  background: var(--surface);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 800;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
@@ -558,7 +558,7 @@
 }
 
 .messageEditedPeer {
-  color: #667085;
+  color: var(--muted);
 }
 
 .messageDeleted {
@@ -816,7 +816,7 @@ video.stickerImage {
 .messageBubbleMedia .messageTimeOwn,
 .messageBubbleMedia .messageEditedOwn,
 .messageBubbleMedia .messageStatus {
-  color: #667085;
+  color: var(--muted);
 }
 
 .messageBubbleMedia.messageBubbleHighlighted {
@@ -954,7 +954,7 @@ video.stickerImage {
 }
 
 .messageTimePeer {
-  color: #667085;
+  color: var(--muted);
 }
 
 .composer {
@@ -977,8 +977,8 @@ video.stickerImage {
 .uploadQueueItem {
   padding: 12px 14px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(17, 24, 39, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .uploadQueueMeta {
@@ -1011,8 +1011,8 @@ video.stickerImage {
   margin-bottom: 12px;
   padding: 12px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .stickerPicker {
@@ -1023,8 +1023,8 @@ video.stickerImage {
   margin-bottom: 12px;
   padding: 12px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .stickerPackTabs {
@@ -1042,16 +1042,16 @@ video.stickerImage {
 .stickerPackSelectLabel {
   font-size: 12px;
   font-weight: 700;
-  color: #667085;
+  color: var(--muted);
 }
 
 .stickerPackSelect {
   width: 100%;
-  border: 1px solid rgba(15, 23, 42, 0.1);
+  border: 1px solid var(--input-border);
   border-radius: 14px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.98);
-  color: #0f172a;
+  background: var(--input-bg);
+  color: var(--text);
   font-size: 14px;
   font-weight: 600;
 }
@@ -1116,9 +1116,9 @@ video.stickerImage {
   margin-bottom: 12px;
   padding: 12px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
 }
 
 .mobilePickerTabs {
@@ -1177,7 +1177,7 @@ video.stickerImage {
 
 .replyBannerText {
   margin: 0;
-  color: #475467;
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -1194,8 +1194,8 @@ video.stickerImage {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: #344054;
+  background: var(--chip-bg);
+  color: var(--muted);
 }
 
 .quoteEditor {
@@ -1204,7 +1204,7 @@ video.stickerImage {
   margin-bottom: 12px;
   padding: 14px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
   border: 1px solid rgba(31, 111, 255, 0.14);
 }
 
@@ -1214,7 +1214,7 @@ video.stickerImage {
 
 .quoteEditorText {
   margin: 0;
-  color: #667085;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1232,9 +1232,10 @@ video.stickerImage {
   width: 100%;
   min-height: 96px;
   padding: 12px 14px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--input-border);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--input-bg);
+  color: var(--text);
   white-space: pre-wrap;
   line-height: 1.5;
   -webkit-user-select: text;
@@ -1271,8 +1272,8 @@ video.stickerImage {
   gap: 14px;
   padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
   border-radius: 28px 28px 22px 22px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.22);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
 }
 
 .mobileActionSheetHandle {
@@ -1303,7 +1304,7 @@ video.stickerImage {
 }
 
 .mobileActionSheetText {
-  color: #111827;
+  color: var(--text);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -1340,8 +1341,8 @@ video.stickerImage {
 }
 
 .mobileActionSheetButton {
-  background: rgba(15, 23, 42, 0.05);
-  color: #111827;
+  background: var(--chip-bg);
+  color: var(--text);
 }
 
 .mobileActionSheetPrimary {
@@ -1355,8 +1356,8 @@ video.stickerImage {
 }
 
 .mobileActionSheetCancel {
-  background: rgba(15, 23, 42, 0.08);
-  color: #475467;
+  background: var(--chip-bg);
+  color: var(--muted);
 }
 
 .composerForm {
@@ -1423,10 +1424,10 @@ video.stickerImage {
   min-width: 48px;
   height: 56px;
   padding: 0;
-  border: 1px solid rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--line);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #111827;
+  background: var(--surface);
+  color: var(--text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1518,11 +1519,11 @@ video.stickerImage {
 }
 
 .secondaryButton {
-  border: 1px solid rgba(17, 24, 39, 0.12);
+  border: 1px solid var(--line);
   padding: 0 22px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #111827;
+  background: var(--surface);
+  color: var(--text);
   font-weight: 800;
 }
 
@@ -1546,9 +1547,9 @@ video.stickerImage {
   max-width: 420px;
   padding: 32px;
   border-radius: 28px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--surface);
   text-align: center;
-  box-shadow: 0 24px 50px rgba(17, 24, 39, 0.1);
+  box-shadow: var(--shadow);
 }
 
 .emptyIcon {
@@ -1571,7 +1572,7 @@ video.stickerImage {
 
 .emptyText {
   margin: 0;
-  color: #667085;
+  color: var(--muted);
   line-height: 1.6;
 }
 
@@ -1580,8 +1581,8 @@ video.stickerImage {
   margin: 0 auto;
   padding: 24px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #667085;
+  background: var(--surface);
+  color: var(--muted);
   text-align: center;
 }
 
@@ -1606,8 +1607,8 @@ video.stickerImage {
   gap: 16px;
   padding: 22px;
   border-radius: 32px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 251, 255, 0.98));
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.16);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
 }
 
 .dialogProfileHeader {
@@ -1635,7 +1636,7 @@ video.stickerImage {
 .dialogProfileText,
 .galleryEmpty {
   margin: 0;
-  color: #667085;
+  color: var(--muted);
 }
 
 .dialogProfileActions {
@@ -1667,7 +1668,7 @@ video.stickerImage {
 }
 
 .galleryGroupHeader {
-  color: #667085;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 800;
 }
@@ -1716,8 +1717,8 @@ video.stickerImage {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(15, 23, 42, 0.05);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .groupMemberIdentity {
@@ -1941,7 +1942,7 @@ video.stickerImage {
     flex-shrink: 0;
     z-index: 9;
     padding-top: calc(14px + env(safe-area-inset-top));
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--panel-strong);
   }
 
   .composer {
@@ -1951,7 +1952,7 @@ video.stickerImage {
     flex-shrink: 0;
     width: 100%;
     padding-bottom: calc(16px + env(safe-area-inset-bottom));
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--panel-strong);
   }
 
   .messageBubbleOwn,

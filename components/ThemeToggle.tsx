@@ -11,7 +11,11 @@ function getSystemTheme(): 'light' | 'dark' {
 
 function applyTheme(theme: Theme) {
   const resolved = theme === 'system' ? getSystemTheme() : theme;
-  document.documentElement.setAttribute('data-theme', resolved);
+  if (resolved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
 }
 
 export default function ThemeToggle() {

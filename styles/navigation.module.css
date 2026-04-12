@@ -96,7 +96,7 @@
 }
 
 .danger {
-  color: #c81e1e;
+  color: var(--danger);
   background: rgba(229, 72, 77, 0.08);
 }
 
@@ -203,8 +203,8 @@
     text-align: center;
   }
 
-  .mobileMenuDanger {
-    color: var(--danger);
-    background: rgba(229, 72, 77, 0.08);
-  }
+.mobileMenuDanger {
+  color: var(--danger);
+  background: rgba(229, 72, 77, 0.08);
+}
 }

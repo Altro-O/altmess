@@ -7,10 +7,10 @@
   display: grid;
   gap: 12px;
   padding: 16px 18px;
-  border: 1px solid rgba(17, 24, 39, 0.08);
+  border: 1px solid var(--line);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.18);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
@@ -29,7 +29,7 @@
 }
 
 .text {
-  color: #667085;
+  color: var(--muted);
 }
 
 .error {
@@ -58,8 +58,8 @@
 }
 
 .mutedButton {
-  color: #344054;
-  background: rgba(17, 24, 39, 0.08);
+  color: var(--muted);
+  background: var(--chip-bg);
 }
 
 @media (max-width: 640px) {
