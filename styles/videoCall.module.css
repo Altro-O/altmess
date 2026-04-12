@@ -193,10 +193,10 @@
   z-index: 2;
   transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
-  gap: 14px;
-  padding: 12px;
+  gap: 12px;
+  padding: 10px 16px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   -webkit-backdrop-filter: blur(14px);
@@ -207,31 +207,53 @@
 .danger,
 .controlWide,
 .dangerWide,
-.acceptWide {
-  min-width: 58px;
-  min-height: 58px;
+.acceptWide,
+.controlBtn,
+.dangerBtn {
+  min-width: 48px;
+  min-height: 48px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   color: white;
-  padding: 0 20px;
+  padding: 0;
+  transition: transform 120ms ease, background 120ms ease;
 }
 
-.control {
-  background: rgba(255, 255, 255, 0.18);
+.control:hover,
+.controlWide:hover,
+.controlBtn:hover {
+  background: rgba(255, 255, 255, 0.28);
+  transform: scale(1.06);
 }
 
+.control,
 .controlWide {
   background: rgba(255, 255, 255, 0.18);
 }
 
-.danger {
+.controlBtn {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.controlBtnOff {
+  background: rgba(229, 72, 77, 0.4);
+}
+
+.danger,
+.dangerWide {
   background: linear-gradient(135deg, #ff5f6d, #e5484d);
 }
 
-.dangerWide {
+.dangerBtn {
   background: linear-gradient(135deg, #ff5f6d, #e5484d);
+}
+
+.danger:hover,
+.dangerWide:hover,
+.dangerBtn:hover {
+  transform: scale(1.06);
 }
 
 .acceptWide {
@@ -535,9 +557,22 @@
   }
 
   .controls {
-    bottom: 18px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     width: calc(100% - 24px);
-    border-radius: 28px;
+    border-radius: 24px;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .control,
+  .danger,
+  .controlWide,
+  .dangerWide,
+  .acceptWide,
+  .controlBtn,
+  .dangerBtn {
+    min-width: 42px;
+    min-height: 42px;
   }
 
   .minimizedCall {
